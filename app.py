@@ -1,323 +1,86 @@
 """
-SmartSearch Backend - Flask API
-Minimal middle layer between frontend UI and FAISS-based retrieval pipeline.
+SmartSearch Backend - Flask API with PostgreSQL
+Middle layer between frontend UI and FAISS-based retrieval pipeline.
 """
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from datetime import datetime
-import uuid
-import json
 import os
-import random
+from flask import Flask, send_from_directory
+from flask_cors import CORS
 
-app = Flask(__name__)
-CORS(app)  # Enable CORS for frontend requests
-
-# In-memory storage for runtime testing
-queries = {}  # {query_id: {raw_text, corrected_text, timestamp, results}}
-feedbacks = []  # [{query_id, product_id, is_ok, timestamp}]
-clicks = []  # [{query_id, product_id, timestamp}]
-
-# File paths for persistent storage
-DATA_DIR = "data"
-FEEDBACK_FILE = os.path.join(DATA_DIR, "feedback.json")
-CLICKS_FILE = os.path.join(DATA_DIR, "clicks.json")
-
-# Ensure data directory exists
-os.makedirs(DATA_DIR, exist_ok=True)
+from config import get_config
+from models import db
 
 
-def load_json_file(filepath):
-    """Load JSON file if it exists, otherwise return empty list."""
-    if os.path.exists(filepath):
-        with open(filepath, 'r') as f:
-            return json.load(f)
-    return []
-
-
-def save_json_file(filepath, data):
-    """Save data to JSON file."""
-    with open(filepath, 'w') as f:
-        json.dump(data, f, indent=2)
-
-
-# Load existing data on startup
-feedbacks = load_json_file(FEEDBACK_FILE)
-clicks = load_json_file(CLICKS_FILE)
-
-
-@app.route('/api/search', methods=['POST'])
-def search():
-    """
-    Handle search query from frontend.
+def create_app(config_class=None):
+    """Application factory function."""
+    app = Flask(__name__)
     
-    Request body:
-    {
-        "raw_text": "red smartphone under 500",
-        "pipeline_hint": "text|multimodal"  (optional, defaults to "text")
-    }
+    # Load configuration
+    if config_class is None:
+        config_class = get_config()
+    app.config.from_object(config_class)
     
-    Response:
-    {
-        "query_id": "uuid",
-        "corrected_text": "red smartphone under $500",  // from FAISS
-        "products": [
-            {
-                "product_id": "prod-001",
-                "name": "Red Smartphone X Pro",
-                "price": 499.99,
-                "category": "Electronics",
-                "description": "...",
-                "color": "red",
-                "brand": "TechCorp",
-                "in_stock": true
-            },
-            ...
-        ]
-    }
+    # Initialize extensions
+    db.init_app(app)
+    CORS(app, origins="*")
     
-    Note: Products are returned in FAISS ranking order (sorted by relevance score).
-    """
-    try:
-        data = request.get_json()
-
-        # Validate request
-        if not data or 'raw_text' not in data:
-            return jsonify({"error": "Missing 'raw_text' in request body"}), 400
-
-        # Extract query parameters (frontend only sends raw_text)
-        raw_text = data.get('raw_text', '')
-        pipeline_hint = data.get('pipeline_hint', 'text')
-        
-        # Generate unique query ID
-        query_id = str(uuid.uuid4())
-        
-        # Load products data
-        products_file = os.path.join(DATA_DIR, "mock_products.json")
-        all_products = load_json_file(products_file)
-        
-        # Create product lookup dictionary
-        products_dict = {p['product_id']: p for p in all_products}
-
-        # TODO: Call external FAISS service API
-        # Example:
-        # response = requests.post(FAISS_API_URL, json={"query": raw_text, "pipeline": pipeline_hint})
-        # faiss_response = response.json()
-        
-        # PLACEHOLDER: Mock FAISS response until external API is ready
-        # Expected format: {"corrected_text": str, "results": [{"product_id": str, "rank": int, "score": float, ...}]}
-        faiss_response = {
-            "corrected_text": raw_text,  # FAISS will return corrected query
-            "results": []  # FAISS will return ranked product IDs
-        }
-        
-        corrected_text = faiss_response.get('corrected_text', raw_text)
-        faiss_results = faiss_response.get('results', [])        # Enrich results with full product details and build product list to send to frontend
-        enriched_results = []
-        products_to_send = []
-        for result in faiss_results:
-            product_id = result['product_id']
-            # Find product details
-            product_details = products_dict.get(product_id)
-
-            # Build enriched result (keeps FAISS metadata for internal use)
-            enriched_result = {
-                **result,  # rank, score, pipeline, explain
-                'product': product_details if product_details else None
-            }
-            enriched_results.append(enriched_result)
-
-            # Build product payload for frontend: just product fields, no search_meta yet
-            # TODO: Add search_meta when saving to database (rank, score, pipeline, explain)
-            if product_details:
-                product_payload = dict(product_details)  # shallow copy
-            else:
-                # If product not found in local catalog, send minimal payload
-                product_payload = {
-                    'product_id': product_id
-                }
-
-            products_to_send.append(product_payload)
-
-        # Store query in memory
-        queries[query_id] = {
-            'query_id': query_id,
-            'raw_text': raw_text,
-            'corrected_text': corrected_text,
-            'pipeline_hint': pipeline_hint,
-            'timestamp': datetime.now().isoformat(),
-            'results': enriched_results,
-            'products_sent': products_to_send
-        }
-
-        # Return results to frontend
-        return jsonify({
-            'query_id': query_id,
-            'corrected_text': corrected_text,  # corrected text from FAISS
-            'products': products_to_send        # enriched product list
-        }), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/feedback', methods=['POST'])
-def feedback():
-    """
-    Receive thumbs up/down feedback from frontend.
+    # Static file serving for uploaded images
+    @app.route('/uploads/products/<filename>')
+    def serve_product_image(filename):
+        """Serve uploaded product images."""
+        upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads/products')
+        return send_from_directory(upload_folder, filename)
     
-    Request body:
-    {
-        "query_id": "uuid",
-        "product_id": "uuid",
-        "is_ok": true
-    }
+    # Register blueprints
+    from routes import (
+        search_bp, 
+        products_bp, 
+        feedback_bp, 
+        health_bp,
+        brands_bp,
+        categories_bp
+    )
     
-    Response:
-    {
-        "ok": true
-    }
-    """
-    try:
-        data = request.get_json()
-        
-        # Validate request
-        if not data or 'query_id' not in data or 'product_id' not in data or 'is_ok' not in data:
-            return jsonify({"error": "Missing required fields: query_id, product_id, is_ok"}), 400
-        
-        # Create feedback record
-        feedback_record = {
-            'query_id': data['query_id'],
-            'product_id': data['product_id'],
-            'is_ok': data['is_ok'],
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        # Store in memory and file
-        feedbacks.append(feedback_record)
-        save_json_file(FEEDBACK_FILE, feedbacks)
-        
-        return jsonify({"ok": True}), 200
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/click', methods=['POST'])
-def click():
-    """
-    Mark that a product was clicked.
+    app.register_blueprint(search_bp)
+    app.register_blueprint(products_bp)
+    app.register_blueprint(feedback_bp)
+    app.register_blueprint(health_bp)
+    app.register_blueprint(brands_bp)
+    app.register_blueprint(categories_bp)
     
-    Request body:
-    {
-        "query_id": "uuid",
-        "product_id": "uuid"
-    }
+    # Create database tables if they don't exist
+    with app.app_context():
+        # Note: In production, use migrations (Flask-Migrate) instead
+        # db.create_all()  # Uncomment if you want auto-create tables
+        pass
     
-    Response:
-    {
-        "ok": true
-    }
-    """
-    try:
-        data = request.get_json()
-        
-        # Validate request
-        if not data or 'query_id' not in data or 'product_id' not in data:
-            return jsonify({"error": "Missing required fields: query_id, product_id"}), 400
-        
-        # Create click record
-        click_record = {
-            'query_id': data['query_id'],
-            'product_id': data['product_id'],
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        # Store in memory and file
-        clicks.append(click_record)
-        save_json_file(CLICKS_FILE, clicks)
-        
-        return jsonify({"ok": True}), 200
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return app
 
 
-@app.route('/api/products', methods=['GET'])
-def get_products():
-    """
-    bunu dumenden koydum
-    
-    Query parameters (optional):
-        category: Filter by category
-        color: Filter by color
-        min_price: Minimum price
-        max_price: Maximum price
-        in_stock: Filter by stock status (true/false)
-    
-    Response:
-    {
-        "products": [...],
-        "total": 10
-    }
-    """
-    try:
-        # Load products from JSON file
-        products_file = os.path.join(DATA_DIR, "mock_products.json")
-        products = load_json_file(products_file)
-        
-        # Apply filters if provided
-        category = request.args.get('category')
-        color = request.args.get('color')
-        min_price = request.args.get('min_price', type=float)
-        max_price = request.args.get('max_price', type=float)
-        in_stock = request.args.get('in_stock')
-        
-        filtered_products = products
-        
-        if category:
-            filtered_products = [p for p in filtered_products if p.get('category', '').lower() == category.lower()]
-        
-        if color:
-            filtered_products = [p for p in filtered_products if p.get('color', '').lower() == color.lower()]
-        
-        if min_price is not None:
-            filtered_products = [p for p in filtered_products if p.get('price', 0) >= min_price]
-        
-        if max_price is not None:
-            filtered_products = [p for p in filtered_products if p.get('price', 0) <= max_price]
-        
-        if in_stock is not None:
-            in_stock_bool = in_stock.lower() == 'true'
-            filtered_products = [p for p in filtered_products if p.get('in_stock', False) == in_stock_bool]
-        
-        return jsonify({
-            'products': filtered_products,
-            'total': len(filtered_products)
-        }), 200
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-
-@app.route('/health', methods=['GET'])
-def health():
-    """Health check endpoint."""
-    return jsonify({
-        'status': 'healthy',
-        'service': 'smartsearch-backend',
-        'timestamp': datetime.now().isoformat()
-    }), 200
+# Create app instance for direct running
+app = create_app()
 
 
 if __name__ == '__main__':
     print("🚀 Starting SmartSearch Backend...")
     print("📍 Available endpoints:")
     print("   POST   /api/search")
+    print("   GET    /api/search/<id>")
     print("   POST   /api/feedback")
     print("   POST   /api/click")
-    print("   GET    /api/products")
     print("   GET    /api/metrics")
+    print("   GET    /api/products")
+    print("   POST   /api/products")
+    print("   GET    /api/products/<id>")
+    print("   PUT    /api/products/<id>")
+    print("   DELETE /api/products/<id>")
+    print("   GET    /api/products/<id>/images")
+    print("   POST   /api/products/<id>/images  📷 (file upload)")
+    print("   DELETE /api/products/<id>/images/<image_no>")
+    print("   GET    /api/brands")
+    print("   POST   /api/brands")
+    print("   GET    /api/categories")
+    print("   POST   /api/categories")
     print("   GET    /health")
+    print("   GET    /uploads/products/<filename>  📷 (serve images)")
+    print(f"📦 Database: {app.config['SQLALCHEMY_DATABASE_URI'].split('@')[1] if '@' in app.config['SQLALCHEMY_DATABASE_URI'] else 'N/A'}")
     app.run(debug=True, host='0.0.0.0', port=5000)
