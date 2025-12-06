@@ -216,12 +216,28 @@ CREATE DATABASE smartsearch;
 
 ### Run the Server
 
+**⚠️ IMPORTANT: Always activate the virtual environment before running the server!**
+
+```bash
+# Windows:
+venv\Scripts\activate
+# Linux/Mac:
+source venv/bin/activate
+```
+
+#### Development Mode
 ```bash
 # Development mode with auto-reload
 python app.py
 
 # Or with Flask CLI
 flask run --host=0.0.0.0 --port=5000 --debug
+```
+
+#### Production Mode (Waitress)
+For production use, run with Waitress:
+```bash
+python run_waitress.py
 ```
 
 Server starts at `http://localhost:5000`
