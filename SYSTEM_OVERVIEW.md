@@ -334,7 +334,7 @@ for pid in [5, 12, 3]:  # FAISS sırası
 
 | Ayar | Değer |
 |------|-------|
-| URL | `FAISS_SERVICE_URL` (default: `http://localhost:5002/api/search`) |
+| URL | `FAISS_SERVICE_URL` (default: `http://localhost:5002/api/retrieval/search`) |
 | Method | POST |
 | Input | `{"query": "corrected text", "pipeline": "text", "top_k": 20}` |
 | Output | `{"results": [{"product_id": 1, "score": 0.95}, {"product_id": 5, "score": 0.87}...]}` |

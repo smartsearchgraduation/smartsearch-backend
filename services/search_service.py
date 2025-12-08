@@ -11,7 +11,8 @@ from typing import Dict, Any, List, Optional
 
 from flask import current_app
 from models import db, SearchQuery, Retrieve, Product
-from .external_services import text_corrector, faiss_client
+from .external_services import text_corrector
+from .faiss_retrieval_service import FAISSRetrievalService
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +32,15 @@ class SearchService:
     """
     
     @staticmethod
-    def execute_search(raw_text: str) -> Dict[str, Any]:
+    def execute_search(raw_text: str, image: Optional[str] = None) -> Dict[str, Any]:
         """
         Execute a search query through Text Corrector and FAISS pipeline.
         
         Flow per work.txt spec:
         1. Call correction service: POST { "text": raw_text } -> { "corrected_text": "..." }
-        2. Call FAISS service: POST { "query": corrected_text, "top_k": 20 } -> { "products": [...] }
+        2. Call FAISS service: 
+           - If image provided: search_late_fusion
+           - Else: search_text
         3. If FAISS fails or returns empty, fallback to DB: 
            SELECT product_id, name, price FROM product WHERE name ILIKE %corrected_text% ORDER BY name LIMIT 20
         4. INSERT INTO search_query(raw_text, corrected_text) RETURNING search_id
@@ -46,36 +49,59 @@ class SearchService:
         
         Args:
             raw_text: Raw search query from user
+            image: Optional image path for late fusion search
         
         Returns:
             dict with search_id only (per work.txt spec)
         """
         start_total = time.time()
-        logger.info(f"[Search] Starting search for raw_text: '{raw_text}'")
+        logger.info(f"[Search] Starting search for raw_text: '{raw_text}', image: {image}")
+        print(f"DEBUG [SearchService]: execute_search called with raw_text='{raw_text}', image='{image}'")
         
         try:
             # ============================================================
             # STEP 1: Text Correction
             # ============================================================
+            print("DEBUG [SearchService]: Calling text_corrector.correct...")
             correction_result = text_corrector.correct(raw_text)
+            print(f"DEBUG [SearchService]: Correction result: {correction_result}")
             corrected_text = correction_result.get('corrected_text', raw_text)
+            print(f"DEBUG [SearchService]: Using corrected_text='{corrected_text}'")
             
             # ============================================================
             # STEP 2: Try FAISS Retrieval
             # ============================================================
-            faiss_result = faiss_client.search(
-                query_text=corrected_text,
-                top_k=20
-            )
+            if image:
+                logger.info(f"[Search] Using Late Fusion search with image: {image}")
+                print(f"DEBUG [SearchService]: Image present, calling FAISSRetrievalService.search_late_fusion...")
+                faiss_result = FAISSRetrievalService.search_late_fusion(
+                    text=corrected_text,
+                    image_path=image,
+                    top_k=10
+                )
+            else:
+                logger.info(f"[Search] Using Text-only search")
+                print(f"DEBUG [SearchService]: No image, calling FAISSRetrievalService.search_text...")
+                faiss_result = FAISSRetrievalService.search_text(
+                    text=corrected_text,
+                    top_k=10
+                )
             
-            faiss_products = faiss_result.get('products', [])
-            faiss_success = faiss_result.get('success', False) and len(faiss_products) > 0
+            print(f"DEBUG [SearchService]: FAISS result: {faiss_result}")
+            
+            # Handle different response formats (products vs results, success vs status)
+            faiss_products = faiss_result.get('products') or faiss_result.get('results') or []
+            is_success = faiss_result.get('success') is True or faiss_result.get('status') == 'success'
+            
+            faiss_success = is_success and len(faiss_products) > 0
+            print(f"DEBUG [SearchService]: faiss_success={faiss_success}, product_count={len(faiss_products)}")
             
             # ============================================================
             # STEP 3: Build products list (FAISS or fallback)
             # ============================================================
             if faiss_success:
                 # FAISS returned results - use them
+                print("DEBUG [SearchService]: Using FAISS results")
                 products = [
                     {'product_id': p['product_id'], 'score': p.get('score', 1.0)}
                     for p in faiss_products
@@ -86,12 +112,16 @@ class SearchService:
                 # Spec: SELECT product_id, name, price FROM product 
                 #       WHERE name ILIKE %corrected_text% ORDER BY name ASC LIMIT 20
                 logger.info(f"[Search] FAISS unavailable, falling back to DB search")
+                print("DEBUG [SearchService]: FAISS unavailable/empty, falling back to DB search")
                 start_db = time.time()
                 search_term = f"%{corrected_text}%"
+                print(f"DEBUG [SearchService]: DB search term: '{search_term}'")
                 
                 db_products = Product.query.filter(
                     Product.name.ilike(search_term)
                 ).order_by(Product.name.asc()).limit(20).all()
+                
+                print(f"DEBUG [SearchService]: DB returned {len(db_products)} products")
                 
                 # Use fake score = 1.0 for fallback results per spec
                 products = [
@@ -104,16 +134,19 @@ class SearchService:
             # ============================================================
             # STEP 4: Insert search_query record
             # ============================================================
+            print("DEBUG [SearchService]: Saving search_query to DB...")
             search_query = SearchQuery(
                 raw_text=raw_text,
                 corrected_text=corrected_text
             )
             db.session.add(search_query)
             db.session.flush()  # Get search_id
+            print(f"DEBUG [SearchService]: Generated search_id={search_query.search_id}")
             
             # ============================================================
             # STEP 5: Insert retrieve records
             # ============================================================
+            print(f"DEBUG [SearchService]: Saving {len(products)} retrieve records...")
             for rank, product_info in enumerate(products, start=1):
                 retrieve = Retrieve(
                     search_id=search_query.search_id,
@@ -124,6 +157,7 @@ class SearchService:
                 db.session.add(retrieve)
             
             db.session.commit()
+            print("DEBUG [SearchService]: DB commit successful")
             
             total_duration = (time.time() - start_total) * 1000
             logger.info(f"[Search] Completed search_id={search_query.search_id} in {total_duration:.2f}ms")
@@ -133,6 +167,7 @@ class SearchService:
             }
             
         except Exception as e:
+            print(f"DEBUG [SearchService]: EXCEPTION: {e}")
             db.session.rollback()
             total_duration = (time.time() - start_total) * 1000
             logger.error(f"[Search] Error executing search: {e} (failed after {total_duration:.2f}ms)")

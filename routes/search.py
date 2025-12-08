@@ -42,18 +42,26 @@ def search():
     """
     try:
         data = request.get_json()
+        print(f"DEBUG [routes/search.py]: Received search request data: {data}")
 
         # Validate request
         if not data or 'raw_text' not in data:
+            print("DEBUG [routes/search.py]: Missing 'raw_text' in request body")
             return jsonify({"error": "Missing 'raw_text' in request body"}), 400
 
         raw_text = data.get('raw_text', '')
+        image = data.get('image')
         
+        print(f"DEBUG [routes/search.py]: Extracted raw_text='{raw_text}', image='{image}'")
+
         if not raw_text or not raw_text.strip():
+            print("DEBUG [routes/search.py]: 'raw_text' is empty")
             return jsonify({"error": "'raw_text' cannot be empty"}), 400
         
         # Execute search through service
-        result = SearchService.execute_search(raw_text)
+        print("DEBUG [routes/search.py]: Calling SearchService.execute_search...")
+        result = SearchService.execute_search(raw_text, image)
+        print(f"DEBUG [routes/search.py]: SearchService returned: {result}")
         
         # Return search_id and raw_text
         return jsonify({

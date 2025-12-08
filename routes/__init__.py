@@ -7,6 +7,7 @@ from .feedback import feedback_bp
 from .health import health_bp
 from .brands import brands_bp
 from .categories import categories_bp
+from .retrieval import retrieval_bp
 
 __all__ = [
     'search_bp',
@@ -14,5 +15,6 @@ __all__ = [
     'feedback_bp',
     'health_bp',
     'brands_bp',
-    'categories_bp'
+    'categories_bp',
+    'retrieval_bp'
 ]

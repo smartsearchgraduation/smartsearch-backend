@@ -26,7 +26,7 @@ class Config:
     
     # External Services
     CORRECTION_SERVICE_URL = os.getenv('CORRECTION_SERVICE_URL', 'http://localhost:5001/api/correct')
-    FAISS_SERVICE_URL = os.getenv('FAISS_SERVICE_URL', 'http://localhost:5002/api/search')
+    FAISS_SERVICE_URL = os.getenv('FAISS_SERVICE_URL', 'http://localhost:5002/api/retrieval/search')
     
     # PostgreSQL Database settings
     POSTGRES_HOST = os.getenv('POSTGRES_HOST', 'localhost')

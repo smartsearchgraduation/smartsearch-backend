@@ -263,7 +263,7 @@ POSTGRES_PASSWORD=your-password
 
 # External Services
 CORRECTION_SERVICE_URL=http://localhost:5001/api/correct
-FAISS_SERVICE_URL=http://localhost:5002/api/search
+FAISS_SERVICE_URL=http://localhost:5002/api/retrieval/search
 
 # SQLAlchemy
 SQLALCHEMY_ECHO=False

@@ -11,6 +11,7 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 
 from models import db, Product, Brand, Category, ProductImage
+from services.faiss_retrieval_service import FAISSRetrievalService
 
 
 def allowed_file(filename):
@@ -148,20 +149,11 @@ def get_products():
             is_active_bool = is_active.lower() == 'true'
             query = query.filter(Product.is_active == is_active_bool)
         
-        # Pagination
-        page = request.args.get('page', 1, type=int)
-        per_page = request.args.get('per_page', 20, type=int)
-        
-        pagination = query.order_by(Product.created_at.desc()).paginate(
-            page=page, per_page=per_page, error_out=False
-        )
+        products = query.order_by(Product.created_at.desc()).all()
         
         return jsonify({
-            'products': [p.to_dict() for p in pagination.items],
-            'total': pagination.total,
-            'page': page,
-            'per_page': per_page,
-            'pages': pagination.pages
+            'products': [p.to_dict() for p in products],
+            'total': len(products)
         }), 200
         
     except Exception as e:
@@ -309,6 +301,39 @@ def create_product():
                 saved_image_urls.append(url)
         
         db.session.commit()
+        
+        # Add to FAISS
+        try:
+            # Construct absolute image paths
+            upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/products')
+            abs_upload_folder = os.path.abspath(upload_folder)
+            
+            absolute_image_paths = []
+            for url in saved_image_urls:
+                # url is like /uploads/products/filename.ext
+                filename = os.path.basename(url)
+                abs_path = os.path.join(abs_upload_folder, filename)
+                absolute_image_paths.append(abs_path)
+            
+            # Get category names
+            category_names = [c.name for c in product.categories]
+            category_str = ", ".join(category_names) if category_names else ""
+            
+            # Call FAISS service
+            faiss_result = FAISSRetrievalService.add_product(
+                product_id=str(product.product_id),
+                name=name,
+                description=description or "",
+                brand=brand_name,
+                category=category_str,
+                price=price,
+                images=absolute_image_paths
+            )
+            
+            if faiss_result.get('status') == 'error':
+                print(f"Warning: Added to DB but failed to add to FAISS: {faiss_result.get('error')}", file=sys.stderr)
+        except Exception as e:
+             print(f"Error adding to FAISS: {e}", file=sys.stderr)
         
         return jsonify({
             "product_id": product.product_id,

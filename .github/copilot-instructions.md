@@ -7,7 +7,7 @@ Flask-based REST API serving as a middle layer between frontend UI and FAISS-bas
 
 **Service Pattern**: Thin Flask API + Service Layer
 - `app.py`: Flask routes, request validation, in-memory state management
-- `services/faiss_service.py`: Search logic (currently mocked, ready for FAISS integration)
+- `services/faiss_retrieval_service.py`: Search logic and FAISS integration
 - `data/`: JSON files for mock products and persistent feedback/clicks
 
 **Data Flow**:
@@ -59,7 +59,7 @@ All endpoints return JSON. Success = 200 + data object. Error = 4xx/5xx + `{"err
 Wrap route logic in `try/except`, return `jsonify({"error": str(e)})` with appropriate status code. No custom exception classes yet.
 
 ### Service Layer
-`services/faiss_service.py` is **stateless**—no class instances, just pure functions. `run_search(query_text, pipeline_hint)` returns a list of dicts. To integrate real FAISS, replace function body but keep signature.
+`services/faiss_retrieval_service.py` handles FAISS operations. `services/search_service.py` orchestrates the search flow (correction -> FAISS -> DB fallback).
 
 ### File I/O
 Use `load_json_file()` and `save_json_file()` helpers in `app.py`. Always check `os.path.exists()` before reading. Files in `data/` are auto-created by `save_json_file()`.
