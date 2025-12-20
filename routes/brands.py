@@ -1,5 +1,5 @@
 """
-Brands routes blueprint.
+API routes for managing product brands.
 """
 from flask import Blueprint, request, jsonify
 
@@ -10,7 +10,7 @@ brands_bp = Blueprint('brands', __name__, url_prefix='/api')
 
 @brands_bp.route('/brands', methods=['GET'])
 def get_brands():
-    """Get all brands."""
+    """List all brands, sorted alphabetically."""
     try:
         brands = Brand.query.order_by(Brand.name).all()
         return jsonify({
@@ -23,7 +23,7 @@ def get_brands():
 
 @brands_bp.route('/brands/<int:brand_id>', methods=['GET'])
 def get_brand(brand_id):
-    """Get a specific brand by ID."""
+    """Fetch a single brand's details."""
     try:
         brand = Brand.query.get(brand_id)
         if not brand:
@@ -38,12 +38,9 @@ def get_brand(brand_id):
 @brands_bp.route('/brands', methods=['POST'])
 def create_brand():
     """
-    Create a new brand.
+    Add a new brand to the system.
     
-    Request body:
-    {
-        "name": "Brand Name"
-    }
+    Just send a JSON body with "name" and you're good to go.
     """
     try:
         data = request.get_json()
@@ -64,7 +61,7 @@ def create_brand():
 
 @brands_bp.route('/brands/<int:brand_id>', methods=['PUT'])
 def update_brand(brand_id):
-    """Update an existing brand."""
+    """Rename a brand."""
     try:
         brand = Brand.query.get(brand_id)
         if not brand:
@@ -86,7 +83,7 @@ def update_brand(brand_id):
 
 @brands_bp.route('/brands/<int:brand_id>', methods=['DELETE'])
 def delete_brand(brand_id):
-    """Delete a brand."""
+    """Remove a brand from the system."""
     try:
         brand = Brand.query.get(brand_id)
         if not brand:

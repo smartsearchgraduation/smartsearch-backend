@@ -669,14 +669,24 @@ Orchestrates the full search flow:
 
 ### External Services (`services/external_services.py`)
 
-HTTP clients for external microservices:
+HTTP client for Text Corrector microservice:
 
 | Client | Service | Endpoint |
 |--------|---------|----------|
 | `TextCorrectorClient` | Typo correction | `POST /api/correct` |
-| `FAISSClient` | Vector search | `POST /api/search` |
 
-Both gracefully handle connection failures and return fallback responses.
+Gracefully handles connection failures and returns fallback responses.
+
+### FAISS Retrieval Service (`services/faiss_retrieval_service.py`)
+
+Unified service for all FAISS operations:
+
+| Method | Description |
+|--------|-------------|
+| `search()` | Basic search with query text |
+| `search_text()` | Text-only search |
+| `search_late_fusion()` | Text + image fusion search |
+| `add_product()` | Add product to FAISS indices |
 
 ### ProductService (`services/product_service.py`)
 
@@ -720,11 +730,9 @@ smartsearch-backend/
 ├── services/              # Business logic layer
 │   ├── __init__.py
 │   ├── search_service.py  # Search orchestration
-│   ├── external_services.py # HTTP clients for microservices
+│   ├── external_services.py # Text Corrector client
+│   ├── faiss_retrieval_service.py # FAISS search & indexing
 │   └── product_service.py # Product business logic
-│
-├── data/                  # Static data files
-│   └── mock_products.json # Mock product data
 │
 └── uploads/               # Uploaded files
     └── products/          # Product images

@@ -1,6 +1,7 @@
 """
-SmartSearch Backend - Flask API with PostgreSQL
-Middle layer between frontend UI and FAISS-based retrieval pipeline.
+SmartSearch Backend - the main Flask application.
+This is the middle layer that connects the frontend UI to the FAISS-based
+product search pipeline.
 """
 import os
 from flask import Flask, send_from_directory
@@ -11,26 +12,26 @@ from models import db
 
 
 def create_app(config_class=None):
-    """Application factory function."""
+    """Create and configure the Flask app."""
     app = Flask(__name__)
     
-    # Load configuration
+    # Load config from environment or use defaults
     if config_class is None:
         config_class = get_config()
     app.config.from_object(config_class)
     
-    # Initialize extensions
+    # Set up database and allow cross-origin requests
     db.init_app(app)
     CORS(app, origins="*")
     
-    # Static file serving for uploaded images
+    # Let the frontend access uploaded product images directly
     @app.route('/uploads/products/<filename>')
     def serve_product_image(filename):
-        """Serve uploaded product images."""
+        """Let users view uploaded product images."""
         upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads/products')
         return send_from_directory(upload_folder, filename)
     
-    # Register blueprints
+    # Hook up all our API route handlers
     from routes import (
         search_bp, 
         products_bp, 
@@ -51,14 +52,14 @@ def create_app(config_class=None):
     
     # Create database tables if they don't exist
     with app.app_context():
-        # Note: In production, use migrations (Flask-Migrate) instead
+        # In production, you'd use Flask-Migrate for database migrations
         # db.create_all()  # Uncomment if you want auto-create tables
         pass
     
     return app
 
 
-# Create app instance for direct running
+# Create the app instance for when this file is run directly
 app = create_app()
 
 

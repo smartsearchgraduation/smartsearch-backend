@@ -1,5 +1,5 @@
 """
-Search routes blueprint.
+API routes for handling search queries from the frontend.
 """
 import logging
 from flask import Blueprint, request, jsonify
@@ -15,30 +15,15 @@ search_bp = Blueprint('search', __name__, url_prefix='/api')
 @search_bp.route('/search', methods=['POST'])
 def search():
     """
-    Handle search query from frontend.
+    The main search endpoint - this is what the frontend calls.
     
-    This endpoint orchestrates the search process:
-    1. Receives raw text input from the user.
-    2. Validates the input.
-    3. Delegates the search logic to SearchService.execute_search(), which:
-       - Calls the Text Correction Service.
-       - Calls the FAISS Service for semantic retrieval.
-       - Fallbacks to database search if FAISS is unavailable.
-       - Logs the query and results to the database.
-    4. Returns the search_id for subsequent result retrieval.
+    Send us the user's search text (and optionally an image), and we'll:
+    - Fix any typos
+    - Search FAISS for matching products  
+    - Fall back to database search if needed
+    - Save everything for analytics
     
-    Request body:
-    {
-        "raw_text": "iphone 15 pro"
-    }
-    
-    Response (201 Created):
-    {
-        "search_id": 123
-    }
-    
-    Returns:
-        JSON response with search_id or error message.
+    Returns a search_id you can use with GET /search/<id> to fetch results.
     """
     try:
         data = request.get_json()
@@ -77,28 +62,10 @@ def search():
 @search_bp.route('/search/<int:search_id>', methods=['GET'])
 def get_search(search_id):
     """
-    Get a specific search query with its results.
+    Fetch the results of a previous search.
     
-    Response format per work.txt spec:
-    {
-        "search_id": 123,
-        "corrected_text": "...",
-        "products": [
-            {
-                "product_id": ...,
-                "name": "...",
-                "price": ...,
-                "rank": ...,
-                "score": ...,
-                "brand": "Brand Name",
-                "image_url": "https://...",
-                "categories": ["Elektronik", "Akıllı Telefon"]
-            },
-            ...
-        ]
-    }
-    
-    Returns 404 if search_id doesn't exist.
+    Use the search_id returned from POST /search to get all the matching
+    products with their details, images (as base64), and scores.
     """
     try:
         result = SearchService.get_search_by_id(search_id)

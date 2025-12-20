@@ -43,14 +43,13 @@ smartsearch-backend/
 │   └── health.py          # /health
 │
 ├── services/               # İş mantığı servisleri
+│   ├── faiss_retrieval_service.py # FAISS arama ve ürün ekleme işlemleri
+│   ├── external_services.py # Text Corrector client
 │   ├── product_service.py # Ürün işlemleri
 │   └── search_service.py  # Arama işlemleri
 │
-├── uploads/                # Yüklenen dosyalar
-│   └── products/          # Ürün görselleri
-│
-└── data/                   # Mock/test verileri
-    └── mock_products.json
+└── uploads/                # Yüklenen dosyalar
+    └── products/          # Ürün görselleri
 ```
 
 ---

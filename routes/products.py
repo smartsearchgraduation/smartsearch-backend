@@ -1,5 +1,7 @@
 """
-Products routes blueprint.
+API routes for managing products in the catalog.
+Includes endpoints for creating, reading, updating, and deleting products,
+as well as handling product images.
 """
 import os
 import sys
@@ -11,32 +13,29 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 
 from models import db, Product, Brand, Category, ProductImage
-from services.faiss_retrieval_service import FAISSRetrievalService
+from services.faiss_retrieval_service import faiss_service
 
 
 def allowed_file(filename):
-    """Check if the file extension is allowed."""
+    """Make sure the uploaded file has an allowed image extension."""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in current_app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg', 'gif', 'webp'})
 
 
 def save_uploaded_image(file, product_id):
     """
-    Save an uploaded image file to disk.
+    Save an uploaded image to our products folder.
     
-    This function handles:
-    1. Validation of file existence and extension
-    2. Secure filename generation using UUID
-    3. Directory creation if needed
-    4. Saving the file to the configured upload folder
+    Takes care of all the boring stuff: validating the file, generating a
+    unique filename so nothing gets overwritten, creating directories if
+    needed, and actually saving the file.
     
     Args:
-        file: FileStorage object from request.files
-        product_id: Product ID to prefix the filename (for organization)
+        file: The uploaded file from the request
+        product_id: We use this to prefix the filename for easier debugging
     
     Returns:
-        str: Relative URL path to the saved image (e.g., "/uploads/products/1_abc.jpg")
-             or None if validation or saving fails.
+        The URL path to access the saved image, or None if something went wrong
     """
     try:
         if not file or file.filename == '':
@@ -49,19 +48,18 @@ def save_uploaded_image(file, product_id):
         original_filename = secure_filename(file.filename)
         file_ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'jpg'
         
-        # Generate unique filename to prevent collisions
-        # Format: {product_id}_{uuid}.{ext}
+        # Use UUID in filename so we never overwrite existing files
         unique_filename = f"{product_id}_{uuid.uuid4().hex}.{file_ext}"
         
-        # Ensure upload directory exists
+        # Create the upload folder if it doesn't exist yet
         upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/products')
         os.makedirs(upload_folder, exist_ok=True)
         
-        # Save file to disk
+        # Actually save the file
         file_path = os.path.join(upload_folder, unique_filename)
         file.save(file_path)
         
-        # Return relative URL for frontend access
+        # Return a URL the frontend can use to display this image
         return f"/uploads/products/{unique_filename}"
         
     except Exception as e:
@@ -71,17 +69,16 @@ def save_uploaded_image(file, product_id):
 
 def get_image_as_base64(img_path):
     """
-    Read an image file from disk and return it as a base64 data URI.
+    Convert an image file to a base64 data URI.
     
-    Used for embedding images directly in JSON responses, which can be useful
-    for clients that prefer self-contained responses over separate image requests.
+    This lets us embed images directly in JSON responses instead of
+    requiring the frontend to make separate requests for each image.
     
     Args:
-        img_path: Relative path like "/uploads/products/filename.jpg"
+        img_path: The image path like "/uploads/products/filename.jpg"
     
     Returns:
-        str: Base64 data URI string (e.g., "data:image/jpeg;base64,...")
-             or None if the file cannot be read.
+        A data URI string like "data:image/jpeg;base64,..." or None if the file doesn't exist
     """
     try:
         upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/products')
@@ -111,16 +108,10 @@ products_bp = Blueprint('products', __name__, url_prefix='/api')
 @products_bp.route('/products', methods=['GET'])
 def get_products():
     """
-    Get all products with optional filters.
+    List all products, with optional filtering.
     
-    Query parameters:
-        category_id: Filter by category ID
-        brand_id: Filter by brand ID
-        min_price: Minimum price
-        max_price: Maximum price
-        is_active: Filter by active status (true/false)
-        page: Page number (default: 1)
-        per_page: Items per page (default: 20)
+    You can filter by category, brand, price range, or active status.
+    All filters are optional - omit them to get everything.
     """
     try:
         # Build query
@@ -162,7 +153,7 @@ def get_products():
 
 @products_bp.route('/products/<int:product_id>', methods=['GET'])
 def get_product(product_id):
-    """Get a specific product by ID with images as base64."""
+    """Fetch a single product with all its details and images (base64 encoded)."""
     try:
         product = Product.query.get(product_id)
         if not product:
@@ -190,30 +181,17 @@ def get_product(product_id):
 @products_bp.route('/products', methods=['POST'])
 def create_product():
     """
-    Create a new product with brand, categories and images.
+    Create a new product.
     
-    Form data (multipart/form-data):
-        name: Product name (required)
-        price: Product price (required)
-        brand: Brand name (required)
-        description: Product description (optional)
-        category_ids: Comma-separated category IDs, e.g. "1,7" (optional)
-        images: Multiple image files (required, at least one)
+    Send this as multipart/form-data with:
+    - name: Product name (required)
+    - price: Product price (required)  
+    - brand: Brand name - creates a new brand if it doesn't exist (required)
+    - description: Product description (optional)
+    - category_ids: Comma-separated category IDs like "1,7" (optional)
+    - images: One or more image files (required)
     
-    Example with curl:
-        curl -X POST http://localhost:5000/api/products \
-            -F "name=iPhone 15 Pro" \
-            -F "price=54999.90" \
-            -F "brand=Apple" \
-            -F "description=128 GB, Blue Titanium" \
-            -F "category_ids=1,7" \
-            -F "images=@image1.jpg" \
-            -F "images=@image2.jpg"
-    
-    Returns:
-        201: Product created successfully with saved image URLs
-        400: Missing required fields or invalid input
-        500: Database or server error
+    The product will automatically be indexed in FAISS for search.
     """
     try:
         # Get form data
@@ -319,8 +297,8 @@ def create_product():
             category_names = [c.name for c in product.categories]
             category_str = ", ".join(category_names) if category_names else ""
             
-            # Call FAISS service
-            faiss_result = FAISSRetrievalService.add_product(
+            # Index the new product in FAISS so it shows up in searches
+            faiss_result = faiss_service.add_product(
                 product_id=str(product.product_id),
                 name=name,
                 description=description or "",
@@ -351,7 +329,7 @@ def create_product():
 
 @products_bp.route('/products/<int:product_id>', methods=['PUT'])
 def update_product(product_id):
-    """Update an existing product."""
+    """Update an existing product's details."""
     try:
         product = Product.query.get(product_id)
         if not product:
@@ -359,7 +337,7 @@ def update_product(product_id):
         
         data = request.get_json()
         
-        # Update fields if provided
+        # Only update the fields that were actually sent
         if 'name' in data:
             product.name = data['name']
         if 'description' in data:
@@ -388,7 +366,7 @@ def update_product(product_id):
 
 @products_bp.route('/products/<int:product_id>', methods=['DELETE'])
 def delete_product(product_id):
-    """Delete a product."""
+    """Remove a product and all its associated data."""
     try:
         product = Product.query.get(product_id)
         if not product:
@@ -407,14 +385,10 @@ def delete_product(product_id):
 @products_bp.route('/products/<int:product_id>/images', methods=['POST'])
 def upload_product_image(product_id):
     """
-    Upload an image file for a product.
-    The file is saved locally and the path is stored in the database.
+    Add a new image to an existing product.
     
-    Form data:
-        file: The image file to upload (required)
-    
-    Returns:
-        ProductImage object with local file path
+    Send the image as form-data with key "file". The image will be saved
+    to disk and a database record created to track it.
     """
     try:
         product = Product.query.get(product_id)
@@ -475,8 +449,9 @@ def upload_product_image(product_id):
 @products_bp.route('/products/<int:product_id>/images/<int:image_no>', methods=['DELETE'])
 def delete_product_image(product_id, image_no):
     """
-    Delete a product image.
-    Removes the file from disk and deletes the database record.
+    Remove a specific image from a product.
+    
+    This deletes both the file on disk and the database record.
     """
     try:
         image = ProductImage.query.filter_by(
@@ -487,7 +462,7 @@ def delete_product_image(product_id, image_no):
         if not image:
             return jsonify({"error": "Image not found"}), 404
         
-        # Delete the local file
+        # Clean up the actual file from disk
         file_path = os.path.join(
             current_app.config.get('UPLOAD_FOLDER', 'uploads/products'),
             os.path.basename(image.url)
@@ -507,9 +482,7 @@ def delete_product_image(product_id, image_no):
 
 @products_bp.route('/products/<int:product_id>/images', methods=['GET'])
 def get_product_images(product_id):
-    """
-    Get all images for a product.
-    """
+    """List all images for a product."""
     try:
         product = Product.query.get(product_id)
         if not product:

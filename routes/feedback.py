@@ -1,5 +1,5 @@
 """
-Feedback routes blueprint (feedback and click tracking).
+API routes for user feedback and click tracking on search results.
 """
 from flask import Blueprint, request, jsonify
 
@@ -11,19 +11,10 @@ feedback_bp = Blueprint('feedback', __name__, url_prefix='/api')
 @feedback_bp.route('/feedback', methods=['POST'])
 def feedback():
     """
-    Receive thumbs up/down feedback from frontend.
+    Record whether a user liked a search result (thumbs up/down).
     
-    Request body:
-    {
-        "query_id": 123,
-        "product_id": 456,
-        "is_ok": true
-    }
-    
-    Response:
-    {
-        "ok": true
-    }
+    Send the query_id, product_id, and is_relevant (true/false).
+    We use this to improve search quality over time.
     """
     try:
         data = request.get_json()
@@ -59,18 +50,10 @@ def feedback():
 @feedback_bp.route('/click', methods=['POST'])
 def click():
     """
-    Mark that a product was clicked.
+    Track when a user clicks on a search result.
     
-    Request body:
-    {
-        "query_id": 123,
-        "product_id": 456
-    }
-    
-    Response:
-    {
-        "ok": true
-    }
+    Send query_id and product_id so we know which result was clicked.
+    Helps us measure how useful our search results are.
     """
     try:
         data = request.get_json()
@@ -105,18 +88,10 @@ def click():
 @feedback_bp.route('/metrics', methods=['GET'])
 def metrics():
     """
-    Get search and feedback metrics.
+    Get overall search performance statistics.
     
-    Response:
-    {
-        "total_searches": 100,
-        "total_clicks": 50,
-        "total_feedback": 30,
-        "positive_feedback": 25,
-        "negative_feedback": 5,
-        "click_through_rate": 0.5,
-        "avg_retrieval_time_ms": 150
-    }
+    Returns things like total searches, click-through rate, and
+    how many thumbs up/down we've received. Useful for dashboards.
     """
     try:
         # Count total searches

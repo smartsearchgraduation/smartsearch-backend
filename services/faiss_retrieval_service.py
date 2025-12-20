@@ -1,113 +1,172 @@
 """
-FAISS Retrieval service for adding products to FAISS indices.
-Handles text and visual embedding generation and storage.
+This module handles all communication with the FAISS retrieval microservice.
+It provides methods for searching products using text, images, or a combination
+of both (late fusion), as well as adding new products to the search index.
 """
 import os
+import time
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
+
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+
 from flask import current_app
-from .external_services import faiss_client
 
 logger = logging.getLogger(__name__)
+
+# These URLs point to the FAISS microservice - can be overridden via environment variables
+FAISS_SERVICE_URL = os.getenv('FAISS_SERVICE_URL', 'http://localhost:5002/api/retrieval/search')
+FAISS_ADD_PRODUCT_URL = os.getenv('FAISS_ADD_PRODUCT_URL', 'http://localhost:5002/api/retrieval/add-product')
+FAISS_TEXT_SEARCH_URL = os.getenv('FAISS_TEXT_SEARCH_URL', 'http://localhost:5002/api/retrieval/search/text')
+FAISS_LATE_FUSION_URL = os.getenv('FAISS_LATE_FUSION_URL', 'http://localhost:5002/api/retrieval/search/late')
 
 
 class FAISSRetrievalService:
     """
-    Service class for FAISS retrieval operations.
+    The main client for talking to our FAISS search service.
     
-    Handles:
-    1. Adding products to FAISS indices (text + visual)
-    2. Encoding product metadata (name, description, brand, category)
-    3. Processing product images for visual embeddings
-    4. Managing FAISS index updates
+    This class handles all the heavy lifting for product search:
+    - Text-based searches (find products matching a query)
+    - Late fusion searches (combine text + image for better results)
+    - Adding new products to the search index
+    
+    All the actual embedding and indexing happens in the FAISS microservice;
+    we just send HTTP requests and handle the responses here.
     """
     
-    @staticmethod
+    def __init__(self, base_url: str = None):
+        self.base_url = base_url or FAISS_SERVICE_URL
+        self.add_product_url = FAISS_ADD_PRODUCT_URL
+        self.text_search_url = FAISS_TEXT_SEARCH_URL
+        self.late_fusion_url = FAISS_LATE_FUSION_URL
+
     def search(
+        self,
         query_text: str,
         top_k: int = 10
     ) -> Dict[str, Any]:
         """
-        Perform generic search via FAISS service.
+        Search for products using a text query.
+        
+        Sends the query to FAISS and returns a ranked list of matching products.
+        Each result includes a product_id and a relevance score.
         
         Args:
-            query_text: Search query
-            top_k: Number of results
-            
+            query_text: The search query (ideally already spell-corrected)
+            top_k: How many results to return (default: 10)
+        
         Returns:
-            dict with results
+            A dict with 'products' list and 'success' flag
         """
+        if not HAS_REQUESTS:
+            logger.warning("[FAISS] requests library not installed, returning empty results")
+            return {'products': [], 'success': False}
+        
+        start_time = time.time()
         try:
-            if not query_text or not query_text.strip():
-                return {
-                    "status": "error",
-                    "error": "query_text is required"
-                }
-                
-            result = faiss_client.search(
-                query_text=query_text,
-                top_k=top_k
+            logger.info(f"[FAISS] Calling service at {self.base_url} with query: '{query_text}'")
+            response = requests.post(
+                self.base_url,
+                json={
+                    'query': query_text,
+                    'top_k': top_k
+                },
+                timeout=10
             )
+            response.raise_for_status()
+            result = response.json()
             
-            return result
+            products = result.get('products', [])
+            duration = (time.time() - start_time) * 1000
             
-        except Exception as e:
-            logger.error(f"[FAISSRetrieval] Search error: {e}")
+            if not products:
+                logger.info(f"[FAISS] Query: '{query_text}' -> empty results (took {duration:.2f}ms)")
+                return {'products': [], 'success': False}
+            
+            logger.info(f"[FAISS] Query: '{query_text}' -> {len(products)} results (took {duration:.2f}ms)")
+            
             return {
-                "status": "error",
-                "error": str(e)
+                'products': products,
+                'success': True
             }
+        except requests.exceptions.ConnectionError:
+            duration = (time.time() - start_time) * 1000
+            logger.warning(f"[FAISS] Service not available at {self.base_url} (took {duration:.2f}ms)")
+            return {'products': [], 'success': False}
+        except Exception as e:
+            duration = (time.time() - start_time) * 1000
+            logger.error(f"[FAISS] Error: {e} (took {duration:.2f}ms)")
+            return {'products': [], 'success': False}
 
-    @staticmethod
     def search_text(
+        self,
         text: str,
         textual_model_name: str = "ViT-B/32",
         top_k: int = 10
     ) -> Dict[str, Any]:
         """
-        Perform text-only search.
+        Run a text-only search against the FAISS index.
+        
+        This is the simpler search method - just takes a text query and finds
+        matching products based on semantic similarity.
         
         Args:
-            text: Search query
-            textual_model_name: Model name
-            top_k: Number of results
-            
+            text: What the user is searching for
+            textual_model_name: Which embedding model to use (default: ViT-B/32)
+            top_k: Maximum number of results to return
+        
         Returns:
-            dict with results
+            Search results with product IDs and scores, or an error message
         """
-        print(f"DEBUG [FAISSRetrievalService]: search_text called with text='{text}'")
+        if not text or not text.strip():
+            return {"status": "error", "error": "text is required"}
+            
+        if not HAS_REQUESTS:
+            logger.warning("[FAISS] requests library not installed")
+            return {'status': 'error', 'error': 'requests library missing'}
+            
         try:
-            if not text or not text.strip():
-                print("DEBUG [FAISSRetrievalService]: text is empty")
-                return {
-                    "status": "error",
-                    "error": "text is required"
-                }
-                
-            print("DEBUG [FAISSRetrievalService]: Calling faiss_client.search_text...")
-            result = faiss_client.search_text(
-                text=text,
-                textual_model_name=textual_model_name,
-                top_k=top_k
-            )
-            print(f"DEBUG [FAISSRetrievalService]: faiss_client returned: {result}")
-            
-            if result.get('status') == 'error':
-                print(f"DEBUG [FAISSRetrievalService]: Error in result: {result}")
-                return result
-                
-            return result
-            
-        except Exception as e:
-            print(f"DEBUG [FAISSRetrievalService]: EXCEPTION: {e}")
-            logger.error(f"[FAISSRetrieval] Text search error: {e}")
-            return {
-                "status": "error",
-                "error": str(e)
+            logger.info(f"[FAISS] Text search: '{text}' (model={textual_model_name})")
+            payload = {
+                'text': text,
+                'textual_model_name': textual_model_name,
+                'top_k': top_k
             }
+            response = requests.post(
+                self.text_search_url,
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code != 200:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get('error', response.text)
+                except:
+                    error_msg = response.text
+                
+                logger.error(f"[FAISS] Text search failed: {response.status_code} - {error_msg}")
+                return {'status': 'error', 'error': f"FAISS Error ({response.status_code}): {error_msg}"}
 
-    @staticmethod
+            result = response.json()
+            
+            if result.get('status') == 'success' or result.get('success', False):
+                return result
+            else:
+                error = result.get('error', 'Unknown error from FAISS service')
+                logger.error(f"[FAISS] Text search failed: {error}")
+                return {'status': 'error', 'error': error}
+
+        except Exception as e:
+            logger.error(f"[FAISS] Text search error: {e}")
+            return {'status': 'error', 'error': str(e)}
+
     def search_late_fusion(
+        self,
         text: str,
         image_path: str,
         text_weight: float = 0.5,
@@ -116,62 +175,74 @@ class FAISSRetrievalService:
         top_k: int = 10
     ) -> Dict[str, Any]:
         """
-        Perform late fusion search (text + image).
+        Search using both text and an image for better accuracy.
+        
+        Late fusion combines the scores from text matching and visual similarity
+        to find products that match both what the user typed AND what they're
+        looking at. Great for "find me something like this" searches.
         
         Args:
-            text: Search query
-            image_path: Path to query image
-            text_weight: Weight for text score
-            textual_model_name: Text model name
-            visual_model_name: Visual model name
-            top_k: Number of results
-            
+            text: The user's search query
+            image_path: Full path to the uploaded image file
+            text_weight: How much to prioritize text vs image (0.5 = equal)
+            textual_model_name: Model for encoding the text
+            visual_model_name: Model for encoding the image
+            top_k: How many results to return
+        
         Returns:
-            dict with results
+            Search results combining both text and visual matching
         """
-        print(f"DEBUG [FAISSRetrievalService]: search_late_fusion called with text='{text}', image_path='{image_path}'")
+        if not text or not text.strip():
+            return {"status": "error", "error": "text is required"}
+            
+        if not image_path or not os.path.exists(image_path):
+            return {"status": "error", "error": f"Image not found: {image_path}"}
+            
+        if not HAS_REQUESTS:
+            logger.warning("[FAISS] requests library not installed")
+            return {'status': 'error', 'error': 'requests library missing'}
+            
         try:
-            if not text or not text.strip():
-                print("DEBUG [FAISSRetrievalService]: text is empty")
-                return {
-                    "status": "error",
-                    "error": "text is required"
-                }
-                
-            if not image_path or not os.path.exists(image_path):
-                print(f"DEBUG [FAISSRetrievalService]: Image not found at {image_path}")
-                return {
-                    "status": "error",
-                    "error": f"Image not found: {image_path}"
-                }
-                
-            print("DEBUG [FAISSRetrievalService]: Calling faiss_client.search_late_fusion...")
-            result = faiss_client.search_late_fusion(
-                text=text,
-                image_path=image_path,
-                text_weight=text_weight,
-                textual_model_name=textual_model_name,
-                visual_model_name=visual_model_name,
-                top_k=top_k
-            )
-            print(f"DEBUG [FAISSRetrievalService]: faiss_client returned: {result}")
-            
-            if result.get('status') == 'error':
-                print(f"DEBUG [FAISSRetrievalService]: Error in result: {result}")
-                return result
-                
-            return result
-            
-        except Exception as e:
-            print(f"DEBUG [FAISSRetrievalService]: EXCEPTION: {e}")
-            logger.error(f"[FAISSRetrieval] Late fusion search error: {e}")
-            return {
-                "status": "error",
-                "error": str(e)
+            logger.info(f"[FAISS] Late fusion search: '{text}' + '{image_path}'")
+            payload = {
+                'text': text,
+                'image': image_path,
+                'text_weight': text_weight,
+                'textual_model_name': textual_model_name,
+                'visual_model_name': visual_model_name,
+                'top_k': top_k
             }
+            response = requests.post(
+                self.late_fusion_url,
+                json=payload,
+                timeout=15
+            )
+            
+            if response.status_code != 200:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get('error', response.text)
+                except:
+                    error_msg = response.text
+                
+                logger.error(f"[FAISS] Late fusion search failed: {response.status_code} - {error_msg}")
+                return {'status': 'error', 'error': f"FAISS Error ({response.status_code}): {error_msg}"}
 
-    @staticmethod
+            result = response.json()
+            
+            if result.get('status') == 'success' or result.get('success', False):
+                return result
+            else:
+                error = result.get('error', 'Unknown error from FAISS service')
+                logger.error(f"[FAISS] Late fusion search failed: {error}")
+                return {'status': 'error', 'error': error}
+
+        except Exception as e:
+            logger.error(f"[FAISS] Late fusion search error: {e}")
+            return {'status': 'error', 'error': str(e)}
+
     def add_product(
+        self,
         product_id: str,
         name: str,
         description: str,
@@ -182,58 +253,42 @@ class FAISSRetrievalService:
         textual_model_name: str = "ViT-B/32",
         visual_model_name: str = "ViT-B/32",
         fused_model_name: str = "ViT-B/32"
-
     ) -> Dict[str, Any]:
         """
-        Add a product to FAISS indices (textual and visual).
+        Add a new product to the FAISS search index.
         
-        Flow:
-        1. Validate inputs (product_id, name, images)
-        2. Prepare textual data: concatenate name, description, brand, category
-        3. Call FAISS service to add product with text and image paths
-        4. FAISS service handles:
-           - Text encoding using specified model
-           - Image encoding for each image path
-           - Adding vectors to FAISS indices
-           - Returning vector IDs for tracking
+        This sends the product's text info (name, description, etc.) and images
+        to the FAISS service, which will create embeddings and add them to the
+        appropriate indices. After this, the product will show up in searches.
         
         Args:
-            product_id: Unique product identifier
-            name: Product name
-            description: Product description
-            brand: Brand name
-            category: Category name
+            product_id: The unique ID for this product
+            name: Product name (required - this is what users search for)
+            description: Longer product description
+            brand: Brand/manufacturer name
+            category: Product category for filtering
             price: Product price
-            images: List of absolute image paths
-            textual_model_name: Model name for text encoding (e.g., "ViT-B/32")
-            visual_model_name: Model name for image encoding (e.g., "ViT-B/32")
+            images: List of image file paths to index for visual search
+            textual_model_name: Embedding model for text (default: ViT-B/32)
+            visual_model_name: Embedding model for images
+            fused_model_name: Model for combined embeddings
         
         Returns:
-            dict with:
-                - status: "success" or "error"
-                - message: Status message
-                - details: (on success)
-                    - product_id: Product ID
-                    - textual_vector_id: FAISS index ID for text embedding
-                    - visual_vector_ids: List of FAISS index IDs for image embeddings
-                    - images_processed: Count of successfully processed images
-                - error: (on failure) Error message
+            Result dict with the FAISS vector IDs assigned to this product
         """
         try:
-            logger.info(f"[FAISSRetrieval] Adding product {product_id} with {len(images)} images")
+            logger.info(f"[FAISS] Adding product {product_id} with {len(images)} images")
             
             # Validate required fields
             if not product_id:
-                return {
-                    "status": "error",
-                    "error": "product_id is required"
-                }
+                return {"status": "error", "error": "product_id is required"}
             
             if not name or not name.strip():
-                return {
-                    "status": "error",
-                    "error": "name is required and cannot be empty"
-                }
+                return {"status": "error", "error": "name is required and cannot be empty"}
+            
+            if not HAS_REQUESTS:
+                logger.warning("[FAISS] requests library not installed")
+                return {"status": "error", "error": "requests library not installed"}
             
             # Get upload folder
             upload_folder = current_app.config.get('UPLOAD_FOLDER')
@@ -242,64 +297,89 @@ class FAISSRetrievalService:
             valid_images = []
             if images and isinstance(images, list):
                 for img_path in images:
-                    # If path is relative, assume it's in upload folder
                     if not os.path.isabs(img_path):
                         full_path = os.path.join(upload_folder, img_path)
                     else:
                         full_path = img_path
                         
                     if not os.path.exists(full_path):
-                        logger.warning(f"[FAISSRetrieval] Image not found: {full_path}")
+                        logger.warning(f"[FAISS] Image not found: {full_path}")
                     else:
                         valid_images.append(full_path)
             
-            # Call FAISS service to add product
-            result = faiss_client.add_product(
-                product_id=product_id,
-                image_paths=valid_images,
-                textual_model=textual_model_name,
-                visual_model=visual_model_name,
-                fused_model_name=fused_model_name,
-                name=name,
-                description=description,
-                brand=brand,
-                category=category,
-                price=price
+            start_time = time.time()
+            
+            # Construct payload
+            payload = {
+                'id': product_id,
+                'name': name,
+                'description': description,
+                'brand': brand,
+                'category': category,
+                'price': price,
+                'images': valid_images,
+                'textual_model_name': textual_model_name,
+                'visual_model_name': visual_model_name,
+                'fused_model_name': fused_model_name
+            }
+            
+            response = requests.post(
+                self.add_product_url,
+                json=payload,
+                timeout=30
             )
             
-            if not result.get('success', False):
-                error_msg = result.get('error', 'FAISS service failed to add product')
-                logger.error(f"[FAISSRetrieval] Failed to add product {product_id}: {error_msg}")
+            duration = (time.time() - start_time) * 1000
+            
+            if response.status_code not in [200, 201]:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get('error', response.text)
+                except:
+                    error_msg = response.text
+                
+                logger.error(f"[FAISS] Failed to add product {product_id}: {response.status_code} - {error_msg}")
+                return {"status": "error", "error": f"FAISS Error ({response.status_code}): {error_msg}"}
+                
+            result = response.json()
+            
+            if result.get('success', False) or result.get('status') == 'success':
+                data = result.get('data', result.get('details', {}))
+                textual_vector_id = data.get('textual_vector_id', 0)
+                visual_vector_ids = data.get('visual_vector_ids', [])
+                images_processed = len(visual_vector_ids)
+                
+                logger.info(
+                    f"[FAISS] Successfully added product {product_id}: "
+                    f"text_id={textual_vector_id}, visual_ids={visual_vector_ids} "
+                    f"(took {duration:.2f}ms)"
+                )
+                
                 return {
-                    "status": "error",
-                    "error": error_msg
+                    "status": "success",
+                    "message": f"Product {product_id} added successfully",
+                    "details": {
+                        "product_id": product_id,
+                        "textual_vector_id": textual_vector_id,
+                        "visual_vector_ids": visual_vector_ids,
+                        "images_processed": images_processed
+                    }
                 }
-            
-            # Extract FAISS response details
-            faiss_data = result.get('data', {})
-            textual_vector_id = faiss_data.get('textual_vector_id', 0)
-            visual_vector_ids = faiss_data.get('visual_vector_ids', [])
-            images_processed = len(visual_vector_ids)
-            
-            logger.info(
-                f"[FAISSRetrieval] Successfully added product {product_id}: "
-                f"text_id={textual_vector_id}, visual_ids={visual_vector_ids}"
-            )
-            
-            return {
-                "status": "success",
-                "message": f"Product {product_id} added successfully",
-                "details": {
-                    "product_id": product_id,
-                    "textual_vector_id": textual_vector_id,
-                    "visual_vector_ids": visual_vector_ids,
-                    "images_processed": images_processed
-                }
-            }
-            
+            else:
+                error = result.get('error', 'FAISS service failed to add product')
+                logger.error(f"[FAISS] Failed to add product {product_id}: {error}")
+                return {"status": "error", "error": error}
+                
+        except requests.exceptions.ConnectionError:
+            logger.error(f"[FAISS] Service not available at {self.add_product_url}")
+            return {"status": "error", "error": "FAISS service not available"}
+        except requests.exceptions.Timeout:
+            logger.error(f"[FAISS] Request timeout adding product {product_id}")
+            return {"status": "error", "error": "Request timeout - image processing may have failed"}
         except Exception as e:
-            logger.error(f"[FAISSRetrieval] Error adding product {product_id}: {e}")
-            return {
-                "status": "error",
-                "error": str(e)
-            }
+            logger.error(f"[FAISS] Error adding product {product_id}: {e}")
+            return {"status": "error", "error": str(e)}
+
+
+# Create a single shared instance for the whole app
+faiss_service = FAISSRetrievalService()

@@ -1,5 +1,5 @@
 """
-Categories routes blueprint.
+API routes for managing product categories.
 """
 from flask import Blueprint, request, jsonify
 
@@ -11,11 +11,10 @@ categories_bp = Blueprint('categories', __name__, url_prefix='/api')
 @categories_bp.route('/categories', methods=['GET'])
 def get_categories():
     """
-    Get all categories.
+    List all categories, optionally as a tree structure.
     
-    Query parameters:
-        parent_id: Filter by parent category ID (use 0 or 'null' for root categories)
-        tree: If 'true', return hierarchical structure
+    Use ?tree=true to get a nested hierarchy, or ?parent_id=X to get
+    children of a specific category.
     """
     try:
         parent_id = request.args.get('parent_id')
@@ -54,7 +53,7 @@ def get_categories():
 
 @categories_bp.route('/categories/<int:category_id>', methods=['GET'])
 def get_category(category_id):
-    """Get a specific category by ID."""
+    """Get a single category with its parent and children info."""
     try:
         category = Category.query.get(category_id)
         if not category:
@@ -71,11 +70,7 @@ def create_category():
     """
     Create a new category.
     
-    Request body:
-    {
-        "name": "Category Name",
-        "parent_category_id": 1  (optional)
-    }
+    Send a name, and optionally a parent_category_id to make it a subcategory.
     """
     try:
         data = request.get_json()
@@ -106,7 +101,7 @@ def create_category():
 
 @categories_bp.route('/categories/<int:category_id>', methods=['PUT'])
 def update_category(category_id):
-    """Update an existing category."""
+    """Update a category's name or parent."""
     try:
         category = Category.query.get(category_id)
         if not category:
@@ -140,7 +135,7 @@ def update_category(category_id):
 
 @categories_bp.route('/categories/<int:category_id>', methods=['DELETE'])
 def delete_category(category_id):
-    """Delete a category."""
+    """Remove a category from the system."""
     try:
         category = Category.query.get(category_id)
         if not category:

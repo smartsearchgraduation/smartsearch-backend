@@ -1,6 +1,6 @@
 """
-Database seeding script for SmartSearch Backend.
-Populates all tables with sample data.
+A helper script to populate the database with sample data.
+Useful for testing and development.
 """
 from datetime import datetime, timezone
 from app import create_app
@@ -15,20 +15,20 @@ from models.retrieve import Retrieve
 
 
 def get_next_id(model, id_column):
-    """Get the next available ID for a model."""
+    """Find the next available ID for a table (to avoid conflicts)."""
     max_id = db.session.query(db.func.max(id_column)).scalar()
     return (max_id or 0) + 1
 
 
 def seed_database():
-    """Seed the database with sample data for all tables."""
+    """Fill the database with some sample data to play around with."""
     
     app = create_app()
     
     with app.app_context():
         print("🌱 Starting database seeding...")
         
-        # Get next available IDs
+        # Figure out what IDs to use so we don't conflict with existing data
         brand_id = get_next_id(Brand, Brand.brand_id)
         parent_cat_id = get_next_id(Category, Category.category_id)
         child_cat_id = parent_cat_id + 1
@@ -38,7 +38,7 @@ def seed_database():
         
         now = datetime.now(timezone.utc)
         
-        # 1. Create Brand
+        # First, let's create a brand
         print("   Creating brand...")
         brand = Brand(
             brand_id=brand_id,
@@ -48,7 +48,7 @@ def seed_database():
         db.session.flush()
         print(f"   ✅ Brand created: {brand.name} (ID: {brand_id})")
         
-        # 2. Create Category (parent)
+        # Now add some categories (parent and child)
         print("   Creating categories...")
         parent_category = Category(
             category_id=parent_cat_id,
@@ -58,7 +58,7 @@ def seed_database():
         db.session.add(parent_category)
         db.session.flush()
         
-        # 3. Create Category (child)
+        # Add a child category under the parent
         child_category = Category(
             category_id=child_cat_id,
             parent_category_id=parent_cat_id,
@@ -68,7 +68,7 @@ def seed_database():
         db.session.flush()
         print(f"   ✅ Categories created: {parent_category.name} (ID: {parent_cat_id}), {child_category.name} (ID: {child_cat_id})")
         
-        # 4. Create Product
+        # Create a sample product
         print("   Creating product...")
         product = Product(
             product_id=product_id,
@@ -84,7 +84,7 @@ def seed_database():
         db.session.flush()
         print(f"   ✅ Product created: {product.name} (ID: {product_id})")
         
-        # 5. Create ProductCategory (association)
+        # Link the product to its category
         print("   Creating product-category association...")
         product_category = ProductCategory(
             product_id=product_id,
@@ -94,7 +94,7 @@ def seed_database():
         db.session.flush()
         print(f"   ✅ Product-Category association created")
         
-        # 6. Create ProductImage
+        # Add an image for the product
         print("   Creating product image...")
         product_image = ProductImage(
             image_no=image_no,
@@ -106,7 +106,7 @@ def seed_database():
         db.session.flush()
         print(f"   ✅ Product image created (ID: {image_no})")
         
-        # 7. Create SearchQuery
+        # Create a sample search query
         print("   Creating search query...")
         search_query = SearchQuery(
             search_id=search_id,
@@ -120,7 +120,7 @@ def seed_database():
         db.session.flush()
         print(f"   ✅ Search query created: '{search_query.raw_text}' (ID: {search_id})")
         
-        # 8. Create Retrieve (search result)
+        # And its search result
         print("   Creating retrieve record...")
         retrieve = Retrieve(
             search_id=search_id,
@@ -136,7 +136,7 @@ def seed_database():
         db.session.flush()
         print(f"   ✅ Retrieve record created (rank: {retrieve.rank}, weight: {retrieve.weight})")
         
-        # Commit all changes
+        # Save everything to the database
         db.session.commit()
         
         print("\n🎉 Database seeding completed successfully!")

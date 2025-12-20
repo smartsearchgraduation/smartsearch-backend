@@ -1,10 +1,11 @@
 """
-Retrieval routes blueprint for FAISS operations.
-Handles adding products to FAISS indices.
+API routes for direct FAISS operations.
+These endpoints let you add products to the search index and perform
+various types of searches (text-only, late fusion with images, etc.).
 """
 import logging
 from flask import Blueprint, request, jsonify
-from services.faiss_retrieval_service import FAISSRetrievalService
+from services.faiss_retrieval_service import faiss_service
 
 logger = logging.getLogger(__name__)
 
@@ -14,14 +15,10 @@ retrieval_bp = Blueprint('retrieval', __name__, url_prefix='/api/retrieval')
 @retrieval_bp.route('/search/text', methods=['POST'])
 def search_text():
     """
-    Perform text-only search.
+    Search for products using just text.
     
-    Request body:
-    {
-        "text": "red leather handbag",
-        "textual_model_name": "ViT-B/32",
-        "top_k": 10
-    }
+    Send a JSON body with "text" (required), and optionally "textual_model_name"
+    and "top_k" to customize the search.
     """
     try:
         data = request.get_json()
@@ -32,7 +29,7 @@ def search_text():
         if not text:
             return jsonify({"status": "error", "error": "Missing required field: text"}), 400
             
-        result = FAISSRetrievalService.search_text(
+        result = faiss_service.search_text(
             text=text,
             textual_model_name=data.get('textual_model_name', 'ViT-B/32'),
             top_k=data.get('top_k', 10)
@@ -51,17 +48,10 @@ def search_text():
 @retrieval_bp.route('/search/late', methods=['POST'])
 def search_late_fusion():
     """
-    Perform late fusion search (text + image).
+    Search using both text and an image for best results.
     
-    Request body:
-    {
-        "text": "red leather handbag",
-        "textual_model_name": "ViT-B/32",
-        "text_weight": 0.5,
-        "image": "C:/path/to/image.jpg",
-        "visual_model_name": "ViT-B/32",
-        "top_k": 10
-    }
+    Send a JSON body with "text" and "image" (both required). You can also
+    adjust "text_weight" to control how much the text vs image matters.
     """
     try:
         data = request.get_json()
@@ -71,14 +61,14 @@ def search_late_fusion():
         text = data.get('text')
         image = data.get('image')
         
-        # "sadece resim gelirse exception koy" -> If only image comes (no text), raise exception
+        # Late fusion requires both text and image - reject requests with only an image
         if image and not text:
              return jsonify({"status": "error", "error": "Text is required for late fusion search"}), 400
              
         if not text or not image:
             return jsonify({"status": "error", "error": "Both text and image are required for late fusion search"}), 400
             
-        result = FAISSRetrievalService.search_late_fusion(
+        result = faiss_service.search_late_fusion(
             text=text,
             image_path=image,
             text_weight=data.get('text_weight', 0.5),
@@ -100,50 +90,11 @@ def search_late_fusion():
 @retrieval_bp.route('/add-product', methods=['POST'])
 def add_product():
     """
-    Add a product to FAISS indices (textual and visual).
+    Add a product directly to the FAISS search index.
     
-    This endpoint:
-    1. Receives product data with images
-    2. Validates all required fields
-    3. Calls FAISSRetrievalService to encode and add to FAISS
-    4. Returns FAISS vector IDs for tracking
-    
-    Request body:
-    {
-        "id": "product_001",
-        "name": "Premium Leather Handbag",
-        "description": "Elegant handcrafted leather bag",
-        "brand": "LuxuryBrand",
-        "category": "Accessories",
-        "price": 299.99,
-        "images": ["C:/absolute/path/to/image1.jpg", "C:/absolute/path/to/image2.jpg"],
-        "textual_model_name": "ViT-B/32",  # Optional, defaults to ViT-B/32
-        "visual_model_name": "ViT-B/32"    # Optional, defaults to ViT-B/32
-    }
-    
-    Response (200 OK):
-    {
-        "status": "success",
-        "message": "Product product_001 added successfully",
-        "details": {
-            "product_id": "product_001",
-            "textual_vector_id": 0,
-            "visual_vector_ids": [0, 1],
-            "images_processed": 2
-        }
-    }
-    
-    Response (400 Bad Request):
-    {
-        "status": "error",
-        "error": "Missing required field: name"
-    }
-    
-    Response (500 Internal Server Error):
-    {
-        "status": "error",
-        "error": "Failed to add product to FAISS"
-    }
+    Use this to make a product searchable without going through the main
+    products API. You'll need to provide the product ID, name, and image paths.
+    The product will be indexed for both text and visual search.
     """
     try:
         data = request.get_json()
@@ -192,7 +143,7 @@ def add_product():
         logger.info(f"[Retrieval] Adding product {product_id} to FAISS")
         
         # Call service to add product
-        result = FAISSRetrievalService.add_product(
+        result = faiss_service.add_product(
             product_id=product_id,
             name=name,
             description=description,

@@ -1,5 +1,5 @@
 """
-Health check route blueprint.
+Simple health check endpoint to verify the service is running.
 """
 from flask import Blueprint, jsonify
 from datetime import datetime
@@ -11,9 +11,9 @@ health_bp = Blueprint('health', __name__)
 
 @health_bp.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint."""
+    """Quick health check - useful for load balancers and monitoring."""
     
-    # Check database connection
+    # Make sure we can actually talk to the database
     db_status = 'healthy'
     try:
         db.session.execute(db.text('SELECT 1'))
