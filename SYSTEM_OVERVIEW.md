@@ -44,7 +44,7 @@ smartsearch-backend/
 │
 ├── services/               # İş mantığı servisleri
 │   ├── faiss_retrieval_service.py # FAISS arama ve ürün ekleme işlemleri
-│   ├── external_services.py # Text Corrector client
+│   ├── text_corrector_service.py # Text Corrector service
 │   ├── product_service.py # Ürün işlemleri
 │   └── search_service.py  # Arama işlemleri
 │
@@ -316,7 +316,7 @@ for pid in [5, 12, 3]:  # FAISS sırası
 
 ---
 
-## 🔌 External Services
+## 🔌 Text Corrector Service
 
 ### Text Corrector Service (smartsearch---correction projesi)
 

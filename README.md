@@ -667,13 +667,13 @@ Orchestrates the full search flow:
 3. **DB Fallback** → `ILIKE` search if FAISS unavailable
 4. **Logging** → Records search queries and results
 
-### External Services (`services/external_services.py`)
+### Text Corrector Service (`services/text_corrector_service.py`)
 
 HTTP client for Text Corrector microservice:
 
 | Client | Service | Endpoint |
 |--------|---------|----------|
-| `TextCorrectorClient` | Typo correction | `POST /api/correct` |
+| `TextCorrectorService` | Typo correction | `POST /api/correct` |
 
 Gracefully handles connection failures and returns fallback responses.
 
@@ -730,7 +730,7 @@ smartsearch-backend/
 ├── services/              # Business logic layer
 │   ├── __init__.py
 │   ├── search_service.py  # Search orchestration
-│   ├── external_services.py # Text Corrector client
+│   ├── text_corrector_service.py # Text Corrector service
 │   ├── faiss_retrieval_service.py # FAISS search & indexing
 │   └── product_service.py # Product business logic
 │

@@ -18,7 +18,7 @@ from flask import current_app
 
 logger = logging.getLogger(__name__)
 
-# These URLs point to the FAISS microservice - can be overridden via environment variables
+# These URLs point to the FAISS microservice 
 FAISS_SERVICE_URL = os.getenv('FAISS_SERVICE_URL', 'http://localhost:5002/api/retrieval/search')
 FAISS_ADD_PRODUCT_URL = os.getenv('FAISS_ADD_PRODUCT_URL', 'http://localhost:5002/api/retrieval/add-product')
 FAISS_TEXT_SEARCH_URL = os.getenv('FAISS_TEXT_SEARCH_URL', 'http://localhost:5002/api/retrieval/search/text')
@@ -111,8 +111,7 @@ class FAISSRetrievalService:
         """
         Run a text-only search against the FAISS index.
         
-        This is the simpler search method - just takes a text query and finds
-        matching products based on semantic similarity.
+        just takes a text query and finds matching products based on semantic similarity.
         
         Args:
             text: What the user is searching for

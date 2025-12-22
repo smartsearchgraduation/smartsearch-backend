@@ -13,7 +13,7 @@ from typing import Dict, Any, List, Optional
 
 from flask import current_app
 from models import db, SearchQuery, Retrieve, Product
-from .external_services import text_corrector
+from .text_corrector_service import text_corrector_service
 from .faiss_retrieval_service import faiss_service
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ class SearchService:
         
         try:
             # First, fix any typos in the search query
-            correction_result = text_corrector.correct(raw_text)
+            correction_result = text_corrector_service.correct(raw_text)
             corrected_text = correction_result.get('corrected_text', raw_text)
             
             # Now search FAISS - use late fusion if we have an image

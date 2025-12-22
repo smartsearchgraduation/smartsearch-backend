@@ -1,7 +1,6 @@
 """
-This module manages connections to external microservices.
-Currently, it handles spell-checking and typo correction for search queries
-via the Text Corrector service.
+This module provides the TextCorrectorService, which manages connections to 
+external microservices for spell-checking and typo correction.
 """
 import os
 import time
@@ -20,9 +19,9 @@ logger = logging.getLogger(__name__)
 CORRECTION_SERVICE_URL = os.getenv('CORRECTION_SERVICE_URL', 'http://localhost:5001/correct')
 
 
-class TextCorrectorClient:
+class TextCorrectorService:
     """
-    A simple client for the text correction microservice.
+    A simple service for the text correction microservice.
     
     This fixes typos and spelling mistakes in search queries before we send
     them to FAISS. For example, "ipohne" becomes "iphone".
@@ -92,4 +91,4 @@ class TextCorrectorClient:
 
 
 # Create a single shared instance for the whole app
-text_corrector = TextCorrectorClient()
+text_corrector_service = TextCorrectorService()
