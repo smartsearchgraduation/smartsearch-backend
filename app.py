@@ -4,11 +4,27 @@ This is the middle layer that connects the frontend UI to the FAISS-based
 product search pipeline.
 """
 import os
+import logging
+import sys
 from flask import Flask, send_from_directory
 from flask_cors import CORS
 
 from config import get_config
 from models import db
+
+# Configure logging to show all service logs in console
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+# Make sure our service loggers are enabled
+logging.getLogger('services.search_service').setLevel(logging.INFO)
+logging.getLogger('services.faiss_retrieval_service').setLevel(logging.INFO)
+logging.getLogger('services.text_corrector_service').setLevel(logging.INFO)
 
 
 def create_app(config_class=None):
@@ -39,7 +55,8 @@ def create_app(config_class=None):
         health_bp,
         brands_bp,
         categories_bp,
-        retrieval_bp
+        retrieval_bp,
+        analytics_bp
     )
     
     app.register_blueprint(search_bp)
@@ -49,6 +66,7 @@ def create_app(config_class=None):
     app.register_blueprint(brands_bp)
     app.register_blueprint(categories_bp)
     app.register_blueprint(retrieval_bp)
+    app.register_blueprint(analytics_bp, url_prefix='/api/analytics')
     
     # Create database tables if they don't exist
     with app.app_context():
@@ -86,6 +104,7 @@ if __name__ == '__main__':
     print("   POST   /api/retrieval/add-product   (FAISS)")
     print("   POST   /api/retrieval/search/text   (FAISS Text)")
     print("   POST   /api/retrieval/search/late   (FAISS Late Fusion)")
+    print("   POST   /api/analytics/search-duration (Client Metrics)")
     print("   GET    /health")
     print("   GET    /uploads/products/<filename>   (serve images)")
     print(f" Database: {app.config['SQLALCHEMY_DATABASE_URI'].split('@')[1] if '@' in app.config['SQLALCHEMY_DATABASE_URI'] else 'N/A'}")

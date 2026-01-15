@@ -12,7 +12,7 @@ import mimetypes
 from typing import Dict, Any, List, Optional
 
 from flask import current_app
-from models import db, SearchQuery, Retrieve, Product
+from models import db, SearchQuery, Retrieve, Product, SearchTime
 from .text_corrector_service import text_corrector_service
 from .faiss_retrieval_service import faiss_service
 
@@ -46,46 +46,77 @@ class SearchService:
             A dict with 'search_id' that can be used to fetch the results
         """
         start_total = time.time()
-        logger.info(f"[Search] Starting search for raw_text: '{raw_text}', image: {image}")
-        
+        logger.info(f"")
+        logger.info(f"{'='*60}")
+        logger.info(f"[Search] 🔍 NEW SEARCH REQUEST")
+        logger.info(f"{'='*60}")
+        logger.info(f"[Search] 📝 Raw Text: '{raw_text}'")
+        logger.info(f"[Search] 🖼️  Image: {image if image else 'None'}")
         
         try:
-            # First, fix any typos in the search query
+            # Step 1: Text Correction
+            logger.info(f"")
+            logger.info(f"[Search] ━━━ STEP 1: TEXT CORRECTION ━━━")
+            start_correction = time.time()
             correction_result = text_corrector_service.correct(raw_text)
             corrected_text = correction_result.get('corrected_text', raw_text)
+            correction_duration = (time.time() - start_correction) * 1000
             
-            # Now search FAISS - use late fusion if we have an image
+            logger.info(f"[Search] 📥 Input:     '{raw_text}'")
+            logger.info(f"[Search] 📤 Output:    '{corrected_text}'")
+            logger.info(f"[Search] ⏱️  Duration:  {correction_duration:.2f}ms")
+            logger.info(f"[Search] ✏️  Changed:   {raw_text != corrected_text}")
+            
+            # Step 2: FAISS Search
+            logger.info(f"")
+            logger.info(f"[Search] ━━━ STEP 2: FAISS RETRIEVAL ━━━")
+            start_faiss = time.time()
+            
             if image:
-                logger.info(f"[Search] Using Late Fusion search with image: {image}")
+                logger.info(f"[Search] 🔀 Mode: Late Fusion (Text + Image)")
                 faiss_result = faiss_service.search_late_fusion(
                     text=corrected_text,
                     image_path=image,
                     top_k=10
                 )
             else:
-                logger.info(f"[Search] Using Text-only search")
+                logger.info(f"[Search] 📝 Mode: Text-only Search")
                 faiss_result = faiss_service.search_text(
                     text=corrected_text,
                     top_k=10
                 )
             
-            # FAISS can return results in different formats, so handle both
+            faiss_duration = (time.time() - start_faiss) * 1000
+            
+            # Log FAISS response details
+            logger.info(f"[Search] 📊 FAISS Response Keys: {list(faiss_result.keys())}")
+            logger.info(f"[Search] ✅ Status: {faiss_result.get('status', faiss_result.get('success', 'unknown'))}")
+            
+            # Parse FAISS results
             faiss_products = faiss_result.get('products') or faiss_result.get('results') or []
             is_success = faiss_result.get('success') is True or faiss_result.get('status') == 'success'
-            
             faiss_success = is_success and len(faiss_products) > 0
             
-            # Use FAISS results if we got them, otherwise fall back to database search
+            logger.info(f"[Search] 📦 Products Found: {len(faiss_products)}")
+            logger.info(f"[Search] ⏱️  Duration: {faiss_duration:.2f}ms")
+            
+            # Step 3: Process Results
+            logger.info(f"")
+            logger.info(f"[Search] ━━━ STEP 3: PROCESS RESULTS ━━━")
+            
             if faiss_success:
-                # Great, FAISS gave us results!
+                logger.info(f"[Search] ✅ Using FAISS results")
                 products = [
                     {'product_id': p['product_id'], 'score': p.get('score', 1.0)}
                     for p in faiss_products
                 ]
-                logger.info(f"[Search] FAISS returned {len(products)} products")
+                
+                # Log top 5 results with scores
+                logger.info(f"[Search] 🏆 Top Results:")
+                for i, p in enumerate(products[:5], 1):
+                    logger.info(f"[Search]    {i}. product_id={p['product_id']}, score={p['score']:.6f}")
             else:
-                # FAISS failed or empty - fallback to DB search
-                logger.info(f"[Search] FAISS unavailable, falling back to DB search")
+                logger.info(f"[Search] ⚠️  FAISS failed/empty, falling back to DB search")
                 start_db = time.time()
                 search_term = f"%{corrected_text}%"
                 
@@ -93,23 +124,28 @@ class SearchService:
                     Product.name.ilike(search_term)
                 ).order_by(Product.name.asc()).limit(20).all()
                 
-                # For database results, we don't have real scores so just use 1.0
                 products = [
                     {'product_id': p.product_id, 'score': 1.0}
                     for p in db_products
                 ]
                 db_duration = (time.time() - start_db) * 1000
-                logger.info(f"[Search] DB fallback returned {len(products)} products (took {db_duration:.2f}ms)")
+                logger.info(f"[Search] 📂 DB returned {len(products)} products (took {db_duration:.2f}ms)")
             
-            # Save this search to the database for analytics
+            # Step 4: Save to Database
+            logger.info(f"")
+            logger.info(f"[Search] ━━━ STEP 4: SAVE TO DATABASE ━━━")
+            start_db_save = time.time()
+            
             search_query = SearchQuery(
                 raw_text=raw_text,
                 corrected_text=corrected_text
             )
             db.session.add(search_query)
-            db.session.flush()  # Need the search_id before we can save results
+            db.session.flush()
             
-            # Save each product result with its rank and score
+            logger.info(f"[Search] 🆔 Search ID: {search_query.search_id}")
+            logger.info(f"[Search] 💾 Saving {len(products)} retrieve records...")
+            
             for rank, product_info in enumerate(products, start=1):
                 retrieve = Retrieve(
                     search_id=search_query.search_id,
@@ -120,9 +156,34 @@ class SearchService:
                 db.session.add(retrieve)
             
             db.session.commit()
+            db_save_duration = (time.time() - start_db_save) * 1000
             
+            # Save SearchTime metrics
+            backend_total_duration = (time.time() - start_total) * 1000
+            
+            search_time = SearchTime(
+                search_id=search_query.search_id,
+                correction_time=correction_duration,
+                faiss_time=faiss_duration,
+                db_time=db_save_duration,
+                backend_total_time=backend_total_duration
+            )
+            db.session.add(search_time)
+            db.session.commit()
+            
+            logger.info(f"[Search] ✅ Saved successfully in {db_save_duration:.2f}ms")
+            
+            # Final Summary
             total_duration = (time.time() - start_total) * 1000
-            logger.info(f"[Search] Completed search_id={search_query.search_id} in {total_duration:.2f}ms")
+            logger.info(f"")
+            logger.info(f"[Search] ━━━ SEARCH COMPLETE ━━━")
+            logger.info(f"[Search] 🆔 Search ID: {search_query.search_id}")
+            logger.info(f"[Search] 📦 Total Products: {len(products)}")
+            logger.info(f"[Search] ⏱️  Total Time: {total_duration:.2f}ms")
+            logger.info(f"[Search]    ├─ Correction: {correction_duration:.2f}ms")
+            logger.info(f"[Search]    ├─ FAISS:      {faiss_duration:.2f}ms")
+            logger.info(f"[Search]    └─ DB Save:    {db_save_duration:.2f}ms")
+            logger.info(f"{'='*60}")
             
             return {
                 'search_id': search_query.search_id
@@ -131,7 +192,189 @@ class SearchService:
         except Exception as e:
             db.session.rollback()
             total_duration = (time.time() - start_total) * 1000
-            logger.error(f"[Search] Error executing search: {e} (failed after {total_duration:.2f}ms)")
+            logger.error(f"[Search] ❌ Error executing search: {e} (failed after {total_duration:.2f}ms)")
+            raise
+    
+    @staticmethod
+    def execute_rawtext_search(original_search_id: int, image: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Execute a search using raw text from the original search (without correction).
+        
+        This is called when the user clicks "search with raw text" button in frontend.
+        It retrieves the original search's raw_text and searches FAISS directly
+        without spell correction.
+        
+        Args:
+            original_search_id: The ID of the original search to get raw_text from
+            image: Optional path to an uploaded image for visual search
+        
+        Returns:
+            A dict with 'new_search_id' that can be used to fetch the results
+        """
+        start_total = time.time()
+        
+        # Ensure original_search_id is an integer to avoid DB type mismatch
+        try:
+            original_search_id = int(original_search_id)
+        except (ValueError, TypeError):
+             raise ValueError(f"Invalid original_search_id: {original_search_id}")
+
+        logger.info(f"")
+        logger.info(f"{'='*60}")
+        logger.info(f"[Search] 🔍 NEW RAW TEXT SEARCH REQUEST")
+        logger.info(f"{'='*60}")
+        logger.info(f"[Search] 🆔 Original Search ID: {original_search_id}")
+        logger.info(f"[Search] 🖼️  Image: {image if image else 'None'}")
+        
+        try:
+            # Step 1: Retrieve Original Query
+            logger.info(f"")
+            logger.info(f"[Search] ━━━ STEP 1: RETRIEVE ORIGINAL QUERY ━━━")
+            original_search = SearchQuery.query.get(original_search_id)
+            if not original_search:
+                raise ValueError(f"Original search with id {original_search_id} not found")
+            
+            raw_text = original_search.raw_text
+            logger.info(f"[Search] 📝 Found Raw Text: '{raw_text}'")
+            logger.info(f"[Search] ℹ️  Skipping spell correction")
+            
+            # Step 2: Search EXECUTION
+            logger.info(f"")
+            logger.info(f"[Search] ━━━ STEP 2: SEARCH EXECUTION ━━━")
+            start_search = time.time()
+            
+            # Search FAISS with raw text (no correction)
+            if image:
+                logger.info(f"[Search] 🔀 Mode: Late Fusion (Text + Image)")
+                faiss_result = faiss_service.search_late_fusion(
+                    text=raw_text,
+                    image_path=image,
+                    top_k=10
+                )
+            else:
+                logger.info(f"[Search] 📝 Mode: Text-only Search")
+                faiss_result = faiss_service.search_text(
+                    text=raw_text,
+                    top_k=10
+                )
+            
+            search_duration = (time.time() - start_search) * 1000
+            
+            # FAISS can return results in different formats, so handle both
+            faiss_products = faiss_result.get('products') or faiss_result.get('results') or []
+            is_success = faiss_result.get('success') is True or faiss_result.get('status') == 'success'
+            
+            faiss_success = is_success and len(faiss_products) > 0
+            
+            logger.info(f"[Search] 📊 FAISS Response Keys: {list(faiss_result.keys())}")
+            logger.info(f"[Search] ✅ Status: {faiss_result.get('status', faiss_result.get('success', 'unknown'))}")
+            logger.info(f"[Search] 📦 Products Found: {len(faiss_products)}")
+            logger.info(f"[Search] ⏱️  Search Duration: {search_duration:.2f}ms")
+            
+            # Use FAISS results if we got them, otherwise fall back to database search
+            if faiss_success:
+                logger.info(f"[Search] ✅ Using FAISS results")
+                products = [
+                    {'product_id': p['product_id'], 'score': p.get('score', 1.0)}
+                    for p in faiss_products
+                ]
+                
+                # Log top 5 results with scores
+                logger.info(f"[Search] 🏆 Top Results:")
+                for i, p in enumerate(products[:5], 1):
+                    logger.info(f"[Search]    {i}. product_id={p['product_id']}, score={p['score']:.6f}")
+                    
+            else:
+                # FAISS failed or empty - fallback to DB search
+                logger.info(f"[Search] ⚠️  FAISS unavailable/empty, falling back to DB search")
+                start_db = time.time()
+                search_term = f"%{raw_text}%"
+                
+                db_products = Product.query.filter(
+                    Product.name.ilike(search_term)
+                ).order_by(Product.name.asc()).limit(20).all()
+                
+                products = [
+                    {'product_id': p.product_id, 'score': 1.0}
+                    for p in db_products
+                ]
+                db_fallback_duration = (time.time() - start_db) * 1000
+                logger.info(f"[Search] 📂 DB fallback returned {len(products)} products (took {db_fallback_duration:.2f}ms)")
+            
+            # Step 3: Save to Database
+            logger.info(f"")
+            logger.info(f"[Search] ━━━ STEP 3: SAVE TO DATABASE ━━━")
+            start_db_save = time.time()
+            
+            # Create a new search record with raw_text = corrected_text (since no correction)
+            new_search_query = SearchQuery(
+                raw_text=raw_text,
+                corrected_text=raw_text  # Same as raw_text since we skip correction
+            )
+            db.session.add(new_search_query)
+            db.session.flush()  # Need the search_id before we can save results
+            
+            logger.info(f"[Search] 🆔 New Search ID: {new_search_query.search_id}")
+            logger.info(f"[Search] 💾 Saving {len(products)} retrieve records...")
+            
+            # Save each product result with its rank and score
+            for rank, product_info in enumerate(products, start=1):
+                retrieve = Retrieve(
+                    search_id=new_search_query.search_id,
+                    product_id=product_info['product_id'],
+                    rank=rank,
+                    weight=product_info['score']
+                )
+                db.session.add(retrieve)
+            
+            logger.info(f"[Search] 🔄 Updating original search (ID: {original_search_id}) links...")
+            
+            # Update original search's retrieve records to mark rawtext_used and link new_search_id
+            original_retrieves = Retrieve.query.filter_by(search_id=original_search_id).all()
+            for retrieve in original_retrieves:
+                retrieve.rawtext_used = True
+                retrieve.new_search_id = new_search_query.search_id
+            
+            db.session.commit()
+            
+            db_save_duration = (time.time() - start_db_save) * 1000
+            
+            # Save SearchTime metrics
+            backend_total_duration = (time.time() - start_total) * 1000
+            
+            search_time = SearchTime(
+                search_id=new_search_query.search_id,
+                correction_time=0,  # No correction for raw search
+                faiss_time=search_duration, # Using search_duration as faiss_time here
+                db_time=db_save_duration,
+                backend_total_time=backend_total_duration
+            )
+            db.session.add(search_time)
+            db.session.commit()
+
+            logger.info(f"[Search] ✅ Saved successfully in {db_save_duration:.2f}ms")
+            
+            total_duration = (time.time() - start_total) * 1000
+            
+            # Final Summary
+            logger.info(f"")
+            logger.info(f"[Search] ━━━ RAW SEARCH COMPLETE ━━━")
+            logger.info(f"[Search] 🆔 New Search ID: {new_search_query.search_id}")
+            logger.info(f"[Search] 📦 Total Products: {len(products)}")
+            logger.info(f"[Search] ⏱️  Total Time: {total_duration:.2f}ms")
+            logger.info(f"[Search]    ├─ Search:     {search_duration:.2f}ms")
+            logger.info(f"[Search]    └─ DB Save:    {db_save_duration:.2f}ms")
+            logger.info(f"{'='*60}")
+            
+            return {
+                'new_search_id': new_search_query.search_id,
+                'original_search_id': original_search_id
+            }
+            
+        except Exception as e:
+            db.session.rollback()
+            total_duration = (time.time() - start_total) * 1000
+            logger.error(f"[Search] ❌ Error executing raw text search: {e} (failed after {total_duration:.2f}ms)")
             raise
     
     @staticmethod
@@ -280,6 +523,37 @@ class SearchService:
         return True
     
     @staticmethod
+    def update_client_metrics(search_id: int, search_duration: float, product_load_duration: float) -> bool:
+        """
+        Update client-side performance metrics for a search.
+        
+        Args:
+            search_id: The ID of the search to update.
+            search_duration: Time taken for the search request (ms).
+            product_load_duration: Time taken to load product resources (ms).
+            
+        Returns:
+            bool: True if updated successfully, False otherwise.
+        """
+        try:
+            search_time = SearchTime.query.get(search_id)
+            if not search_time:
+                # Iterate to try and find if it was created but not committed yet? No, it should be there.
+                # Maybe create it if missing? For now just log warning.
+                logger.warning(f"[Analytics] SearchTime not found for search_id={search_id}")
+                return False
+                
+            search_time.search_duration = search_duration
+            search_time.product_load_duration = product_load_duration
+            db.session.commit()
+            
+            logger.info(f"[Analytics] 📊 Updated client metrics for search {search_id}")
+            return True
+        except Exception as e:
+            logger.error(f"[Analytics] ❌ Error updating client metrics: {e}")
+            return False
+
+    @staticmethod
     def get_metrics() -> Dict[str, Any]:
         """Get overall search performance stats (clicks, feedback, response times)."""
         total_searches = SearchQuery.query.count()
@@ -295,6 +569,11 @@ class SearchService:
             db.func.avg(SearchQuery.time_to_retrieve)
         ).scalar() or 0
         
+        # Also get avg backend total time from new table
+        avg_backend = db.session.query(
+            db.func.avg(SearchTime.backend_total_time)
+        ).scalar() or 0
+        
         return {
             "total_searches": total_searches,
             "total_clicks": total_clicks,
@@ -302,5 +581,7 @@ class SearchService:
             "positive_feedback": positive_feedback,
             "negative_feedback": negative_feedback,
             "click_through_rate": round(ctr, 4),
-            "avg_retrieval_time_ms": round(float(avg_time), 2)
+            "avg_retrieval_time_ms": round(float(avg_time), 2),
+            "avg_backend_total_time_ms": round(float(avg_backend), 2)
         }
+

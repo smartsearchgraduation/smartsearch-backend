@@ -8,7 +8,7 @@ import sys
 import uuid
 import base64
 import mimetypes
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, send_file
 from datetime import datetime
 from werkzeug.utils import secure_filename
 
@@ -64,6 +64,63 @@ def save_uploaded_image(file, product_id):
         
     except Exception as e:
         print(f"Error saving uploaded image: {e}", file=sys.stderr)
+        return None
+
+
+def save_base64_image(base64_string, product_id):
+    """
+    Save a base64 encoded image to our products folder.
+    
+    Args:
+        base64_string: The base64 data URI like "data:image/jpeg;base64,/9j/4AAQ..."
+        product_id: We use this to prefix the filename for easier debugging
+    
+    Returns:
+        The URL path to access the saved image, or None if something went wrong
+    """
+    try:
+        if not base64_string or not base64_string.startswith('data:'):
+            print(f"[DEBUG] Invalid base64 string format", file=sys.stderr)
+            return None
+        
+        # Parse the data URI
+        # Format: data:image/jpeg;base64,/9j/4AAQ...
+        header, data = base64_string.split(',', 1)
+        
+        # Extract mime type
+        mime_match = header.split(':')[1].split(';')[0] if ':' in header else 'image/jpeg'
+        
+        # Determine file extension from mime type
+        ext_map = {
+            'image/jpeg': 'jpg',
+            'image/jpg': 'jpg',
+            'image/png': 'png',
+            'image/gif': 'gif',
+            'image/webp': 'webp'
+        }
+        file_ext = ext_map.get(mime_match, 'jpg')
+        
+        # Generate unique filename
+        unique_filename = f"{product_id}_{uuid.uuid4().hex}.{file_ext}"
+        
+        # Create the upload folder if it doesn't exist yet
+        upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/products')
+        os.makedirs(upload_folder, exist_ok=True)
+        
+        # Decode and save the file
+        file_path = os.path.join(upload_folder, unique_filename)
+        img_data = base64.b64decode(data)
+        
+        with open(file_path, 'wb') as f:
+            f.write(img_data)
+        
+        print(f"[DEBUG] Saved base64 image: {unique_filename} ({len(img_data)} bytes)", file=sys.stderr)
+        
+        # Return a URL the frontend can use to display this image
+        return f"/uploads/products/{unique_filename}"
+        
+    except Exception as e:
+        print(f"Error saving base64 image: {e}", file=sys.stderr)
         return None
 
 
@@ -329,38 +386,283 @@ def create_product():
 
 @products_bp.route('/products/<int:product_id>', methods=['PUT'])
 def update_product(product_id):
-    """Update an existing product's details."""
+    """
+    Update an existing product's details and optionally replace all images.
+    
+    Send this as multipart/form-data with:
+    - name: Product name (optional)
+    - price: Product price (optional)
+    - brand: Brand name (optional) - creates new brand if doesn't exist
+    - description: Product description (optional)
+    - category_ids: Comma-separated category IDs like "1,7" (optional)
+    - is_active: "true" or "false" (optional)
+    - images: One or more image files (optional) - if provided, ALL existing images will be deleted and replaced
+    
+    The product will be re-indexed in FAISS if images are changed.
+    """
     try:
+        # DEBUG: Log incoming request
+        print(f"[DEBUG] PUT /api/products/{product_id}", file=sys.stderr)
+        print(f"[DEBUG] Content-Type: {request.content_type}", file=sys.stderr)
+        print(f"[DEBUG] Form data: {dict(request.form)}", file=sys.stderr)
+        print(f"[DEBUG] Files: {list(request.files.keys())}", file=sys.stderr)
+        
         product = Product.query.get(product_id)
         if not product:
+            print(f"[DEBUG] Product {product_id} not found", file=sys.stderr)
             return jsonify({"error": "Product not found"}), 404
         
-        data = request.get_json()
+        # Get form data
+        name = request.form.get('name')
+        price_str = request.form.get('price')
+        brand_name = request.form.get('brand')
+        description = request.form.get('description')
+        category_ids_str = request.form.get('category_ids', '')
+        is_active_str = request.form.get('is_active')
         
-        # Only update the fields that were actually sent
-        if 'name' in data:
-            product.name = data['name']
-        if 'description' in data:
-            product.description = data['description']
-        if 'price' in data:
-            product.price = data['price']
-        if 'brand_id' in data:
-            product.brand_id = data['brand_id']
-        if 'is_active' in data:
-            product.is_active = data['is_active']
-        if 'category_ids' in data:
-            categories = Category.query.filter(
-                Category.category_id.in_(data['category_ids'])
-            ).all()
-            product.categories = categories
+        print(f"[DEBUG] Parsed - name: {name}, price: {price_str}, brand: {brand_name}, is_active: {is_active_str}", file=sys.stderr)
+        
+        # Get all uploaded images
+        images = request.files.getlist('images')
+        print(f"[DEBUG] Images count: {len(images)}, filenames: {[img.filename for img in images]}", file=sys.stderr)
+        
+        # Update name
+        if name:
+            product.name = name
+        
+        # Update description
+        if description is not None:
+            product.description = description
+        
+        # Update price
+        if price_str:
+            try:
+                price = float(price_str)
+                if price < 0:
+                    print(f"[DEBUG] ERROR: Negative price: {price}", file=sys.stderr)
+                    return jsonify({"error": "Price must be a non-negative number"}), 400
+                product.price = price
+            except (ValueError, TypeError) as e:
+                print(f"[DEBUG] ERROR: Invalid price '{price_str}': {e}", file=sys.stderr)
+                return jsonify({"error": "Price must be a valid number"}), 400
+        
+        # Update brand
+        if brand_name:
+            brand = Brand.query.filter_by(name=brand_name).first()
+            if not brand:
+                brand = Brand(name=brand_name)
+                db.session.add(brand)
+                db.session.flush()
+            product.brand_id = brand.brand_id
+        
+        # Update is_active
+        if is_active_str is not None:
+            product.is_active = is_active_str.lower() == 'true'
+        
+        # Update categories
+        if category_ids_str:
+            try:
+                category_ids = [int(x.strip()) for x in category_ids_str.split(',') if x.strip()]
+                categories = Category.query.filter(Category.category_id.in_(category_ids)).all()
+                product.categories = categories
+            except ValueError as e:
+                print(f"[DEBUG] ERROR: Invalid category_ids '{category_ids_str}': {e}", file=sys.stderr)
+                return jsonify({"error": "category_ids must be comma-separated integers"}), 400
+        
+        # Handle images - if new images provided, delete old ones and add new
+        saved_image_urls = []
+        images_updated = False
+        
+        # Check for base64 images from images_base64 field
+        images_base64_str = request.form.get('images_base64', '')
+        base64_images = []
+        
+        if images_base64_str:
+            try:
+                import json
+                base64_images = json.loads(images_base64_str)
+                if not isinstance(base64_images, list):
+                    base64_images = [base64_images]
+                print(f"[DEBUG] Base64 images from images_base64 field: {len(base64_images)}", file=sys.stderr)
+            except json.JSONDecodeError as e:
+                print(f"[DEBUG] ERROR: Invalid images_base64 JSON: {e}", file=sys.stderr)
+                return jsonify({"error": "images_base64 must be a valid JSON array of base64 strings"}), 400
+        
+        # Process uploaded files - check if they're actual files or base64 data
+        valid_images = []
+        for img in images:
+            if not img or not img.filename:
+                continue
+            
+            # Check if filename has extension (real file) or not (might be base64 or raw binary)
+            if '.' in img.filename:
+                # This looks like a real file with extension
+                valid_images.append(img)
+                print(f"[DEBUG] Valid file upload: {img.filename}", file=sys.stderr)
+            else:
+                # No extension - read content and detect type
+                try:
+                    content = img.read()
+                    img.seek(0)  # Reset file pointer
+                    
+                    # First try: check if it's a text base64 data URI
+                    try:
+                        content_str = content.decode('utf-8')
+                        if content_str.startswith('data:image'):
+                            # This is base64 data URI
+                            base64_images.append(content_str)
+                            print(f"[DEBUG] Detected base64 data URI in file: {img.filename}", file=sys.stderr)
+                            continue
+                    except UnicodeDecodeError:
+                        pass  # Not text, might be binary image
+                    
+                    # Second try: check magic bytes to detect image type
+                    ext = None
+                    if content[:2] == b'\xff\xd8':
+                        ext = 'jpg'
+                    elif content[:8] == b'\x89PNG\r\n\x1a\n':
+                        ext = 'png'
+                    elif content[:6] in (b'GIF87a', b'GIF89a'):
+                        ext = 'gif'
+                    elif content[:4] == b'RIFF' and content[8:12] == b'WEBP':
+                        ext = 'webp'
+                    
+                    if ext:
+                        # It's a valid image! Create a wrapper to save it
+                        print(f"[DEBUG] Detected {ext} image from binary (filename was: {img.filename})", file=sys.stderr)
+                        # Save directly since we already have the content
+                        upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/products')
+                        os.makedirs(upload_folder, exist_ok=True)
+                        unique_filename = f"{product_id}_{uuid.uuid4().hex}.{ext}"
+                        file_path = os.path.join(upload_folder, unique_filename)
+                        with open(file_path, 'wb') as f:
+                            f.write(content)
+                        # Add to saved list (we'll process this specially)
+                        saved_image_urls.append(f"/uploads/products/{unique_filename}")
+                        print(f"[DEBUG] Saved binary image as: {unique_filename}", file=sys.stderr)
+                    else:
+                        print(f"[DEBUG] Skipping unknown file format: {img.filename} (first bytes: {content[:10]})", file=sys.stderr)
+                        
+                except Exception as e:
+                    print(f"[DEBUG] Error reading file {img.filename}: {e}", file=sys.stderr)
+        
+        print(f"[DEBUG] Total base64 images: {len(base64_images)}, valid file uploads: {len(valid_images)}, pre-saved binary: {len(saved_image_urls)}", file=sys.stderr)
+        
+        # Process if we have any new images (base64, file uploads, or pre-saved binary)
+        if base64_images or valid_images or saved_image_urls:
+            images_updated = True
+            
+            # Delete old images from disk and database
+            old_images = ProductImage.query.filter_by(product_id=product_id).all()
+            upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/products')
+            print(f"[DEBUG] Deleting {len(old_images)} old images", file=sys.stderr)
+            
+            for old_img in old_images:
+                # Delete file from disk
+                file_path = os.path.join(upload_folder, os.path.basename(old_img.url))
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                    except Exception as e:
+                        print(f"Warning: Could not delete old image file {file_path}: {e}", file=sys.stderr)
+                # Delete from database
+                db.session.delete(old_img)
+            
+            # Add pre-saved binary images to database (they're already saved to disk)
+            for url in saved_image_urls:
+                image = ProductImage(
+                    product_id=product.product_id,
+                    url=url
+                )
+                db.session.add(image)
+                print(f"[DEBUG] Added pre-saved binary to DB: {url}", file=sys.stderr)
+            
+            # Save base64 images
+            for idx, b64_img in enumerate(base64_images):
+                url = save_base64_image(b64_img, product.product_id)
+                if url is None:
+                    print(f"[DEBUG] ERROR: Failed to save base64 image {idx}", file=sys.stderr)
+                    db.session.rollback()
+                    return jsonify({"error": f"Failed to save base64 image {idx}"}), 400
+                
+                image = ProductImage(
+                    product_id=product.product_id,
+                    url=url
+                )
+                db.session.add(image)
+                saved_image_urls.append(url)
+            
+            # Save file uploads (if any valid ones exist)
+            for img_file in valid_images:
+                if not allowed_file(img_file.filename):
+                    allowed = current_app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg', 'gif', 'webp'})
+                    print(f"[DEBUG] ERROR: File type not allowed: {img_file.filename}", file=sys.stderr)
+                    db.session.rollback()
+                    return jsonify({"error": f"File type not allowed. Allowed types: {', '.join(allowed)}"}), 400
+                
+                url = save_uploaded_image(img_file, product.product_id)
+                if url is None:
+                    print(f"[DEBUG] ERROR: Failed to save image: {img_file.filename}", file=sys.stderr)
+                    db.session.rollback()
+                    return jsonify({"error": "Failed to save image file."}), 400
+                
+                image = ProductImage(
+                    product_id=product.product_id,
+                    url=url
+                )
+                db.session.add(image)
+                saved_image_urls.append(url)
         
         product.updated_at = datetime.utcnow()
         db.session.commit()
         
-        return jsonify(product.to_dict()), 200
+        # Update FAISS index if images were changed
+        if images_updated:
+            try:
+                upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/products')
+                abs_upload_folder = os.path.abspath(upload_folder)
+                
+                absolute_image_paths = []
+                for url in saved_image_urls:
+                    filename = os.path.basename(url)
+                    abs_path = os.path.join(abs_upload_folder, filename)
+                    absolute_image_paths.append(abs_path)
+                
+                # Get category names
+                category_names = [c.name for c in product.categories]
+                category_str = ", ".join(category_names) if category_names else ""
+                
+                # Get brand name
+                brand_name_for_faiss = product.brand.name if product.brand else ""
+                
+                # Re-index the product in FAISS (add with same ID should update)
+                faiss_result = faiss_service.add_product(
+                    product_id=str(product.product_id),
+                    name=product.name,
+                    description=product.description or "",
+                    brand=brand_name_for_faiss,
+                    category=category_str,
+                    price=float(product.price) if product.price else 0.0,
+                    images=absolute_image_paths
+                )
+                
+                if faiss_result.get('status') == 'error':
+                    print(f"Warning: Updated DB but failed to update FAISS: {faiss_result.get('error')}", file=sys.stderr)
+            except Exception as e:
+                print(f"Error updating FAISS: {e}", file=sys.stderr)
+        
+        return jsonify({
+            "message": "Product updated successfully",
+            "product_id": product.product_id,
+            "name": product.name,
+            "brand": product.brand.name if product.brand else None,
+            "images": saved_image_urls if images_updated else None,
+            "images_updated": images_updated
+        }), 200
     
     except Exception as e:
         db.session.rollback()
+        print(f"Error in update_product: {e}", file=sys.stderr)
         return jsonify({"error": str(e)}), 500
 
 
@@ -482,18 +784,65 @@ def delete_product_image(product_id, image_no):
 
 @products_bp.route('/products/<int:product_id>/images', methods=['GET'])
 def get_product_images(product_id):
-    """List all images for a product."""
+    """
+    List all images for a product as base64.
+    
+    Returns all images as base64 data URI strings.
+    """
     try:
         product = Product.query.get(product_id)
         if not product:
             return jsonify({"error": "Product not found"}), 404
         
-        images = ProductImage.query.filter_by(product_id=product_id).all()
+        images = ProductImage.query.filter_by(product_id=product_id).order_by(ProductImage.image_no).all()
+        
+        images_base64 = []
+        for img in images:
+            b64 = get_image_as_base64(img.url)
+            if b64:
+                images_base64.append({
+                    "image_no": img.image_no,
+                    "image": b64
+                })
         
         return jsonify({
             "product_id": product_id,
-            "images": [img.to_dict() for img in images],
-            "total": len(images)
+            "images": images_base64,
+            "total": len(images_base64)
+        }), 200
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@products_bp.route('/products/<int:product_id>/image', methods=['GET'])
+def get_product_first_image(product_id):
+    """
+    Get the first image of a product as base64.
+    
+    Returns the image as a base64 data URI string in JSON format.
+    """
+    try:
+        # Check if product exists
+        product = Product.query.get(product_id)
+        if not product:
+            return jsonify({"error": "Product not found"}), 404
+        
+        # Get the first image (ordered by image_no)
+        image = ProductImage.query.filter_by(product_id=product_id).order_by(ProductImage.image_no).first()
+        
+        if not image:
+            return jsonify({"error": "No image found for this product"}), 404
+        
+        # Convert to base64
+        base64_image = get_image_as_base64(image.url)
+        
+        if not base64_image:
+            return jsonify({"error": "Image file not found on disk"}), 404
+        
+        return jsonify({
+            "product_id": product_id,
+            "image": base64_image
         }), 200
     
     except Exception as e:

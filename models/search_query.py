@@ -18,7 +18,13 @@ class SearchQuery(db.Model):
     timestamp = db.Column(db.DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     
     # Relationships
-    retrieves = db.relationship('Retrieve', back_populates='search_query', lazy='dynamic', cascade='all, delete-orphan')
+    retrieves = db.relationship(
+        'Retrieve', 
+        back_populates='search_query', 
+        lazy='dynamic', 
+        cascade='all, delete-orphan',
+        foreign_keys='Retrieve.search_id'
+    )
     
     def __repr__(self):
         return f'<SearchQuery {self.search_id}: {self.raw_text[:50]}...>'

@@ -13,6 +13,7 @@ from .product_image import ProductImage
 from .product_category import ProductCategory
 from .search_query import SearchQuery
 from .retrieve import Retrieve
+from .search_time import SearchTime
 
 __all__ = [
     'db',
@@ -22,5 +23,6 @@ __all__ = [
     'ProductImage',
     'ProductCategory',
     'SearchQuery',
-    'Retrieve'
+    'Retrieve',
+    'SearchTime'
 ]

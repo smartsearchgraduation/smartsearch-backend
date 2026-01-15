@@ -26,8 +26,26 @@ class Retrieve(db.Model):
     is_clicked = db.Column(db.Boolean, nullable=True)  # click tracking
     embedding_id = db.Column(db.String(100), nullable=True)
     
+
+    
+    # Raw text search tracking
+    rawtext_used = db.Column(db.Boolean, nullable=True, default=False)
+    new_search_id = db.Column(
+        db.BigInteger, 
+        db.ForeignKey('search_query.search_id', ondelete='SET NULL'),
+        nullable=True
+    )
+    
     # Relationships
-    search_query = db.relationship('SearchQuery', back_populates='retrieves')
+    search_query = db.relationship(
+        'SearchQuery', 
+        back_populates='retrieves',
+        foreign_keys='Retrieve.search_id'
+    )
+    new_search = db.relationship(
+        'SearchQuery',
+        foreign_keys='Retrieve.new_search_id'
+    )
     product = db.relationship('Product', back_populates='retrieves')
     
     def __repr__(self):
@@ -51,7 +69,10 @@ class Retrieve(db.Model):
             'explain': self.explain,
             'is_relevant': self.is_relevant,
             'is_clicked': self.is_clicked,
-            'embedding_id': self.embedding_id
+            'embedding_id': self.embedding_id,
+
+            'rawtext_used': self.rawtext_used,
+            'new_search_id': self.new_search_id
         }
         
         if include_product and self.product:

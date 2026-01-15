@@ -11,7 +11,7 @@ idna==3.11
 itsdangerous==2.2.0
 Jinja2==3.1.6
 MarkupSafe==3.0.3
-psycopg2-binary==2.9.9
+pg8000
 python-dotenv==1.0.0
 requests==2.31.0
 SQLAlchemy==2.0.44
@@ -19,3 +19,4 @@ typing_extensions==4.15.0
 urllib3==2.6.0
 waitress==3.0.2
 Werkzeug==3.1.4
+Pillow>=10.0.0

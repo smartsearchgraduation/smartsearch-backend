@@ -325,7 +325,7 @@ class FAISSRetrievalService:
             response = requests.post(
                 self.add_product_url,
                 json=payload,
-                timeout=30
+                timeout=120
             )
             
             duration = (time.time() - start_time) * 1000

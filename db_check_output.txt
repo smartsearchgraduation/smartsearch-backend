@@ -1,0 +1,19 @@
+Initializing application context...
+Connecting to database: postgresql+pg8000://postgres:159951@localhost:5432/smartsearch
+Successfully connected to database.
+
+Inspecting database schema...
+Found tables in DB: ['category', 'brand', 'product', 'product_category', 'product_image', 'search_query', 'retrieve']
+
+Comparing Models <-> Database:
+[OK] Table 'brand' exists.
+[OK] Table 'category' exists.
+[OK] Table 'product' exists.
+[OK] Table 'product_image' exists.
+    [INFO] Extra columns in DB table 'product_image': {'sha256'}
+[OK] Table 'product_category' exists.
+[OK] Table 'search_query' exists.
+[OK] Table 'retrieve' exists.
+    [INFO] Extra columns in DB table 'retrieve': {'backend_time', 'total_time'}
+
+SUCCESS: Database is fully compatible with the models!
