@@ -65,19 +65,26 @@ class TextCorrectorService:
                 'latency_ms': 0
             }
         
-        # Use specified engine or default
-        correction_engine = engine or self.default_engine
+        # Map common engine names to internal constants
+        engine_map = {
+            'symspell': ENGINE_SYMSPELL,
+            'symspell_keyboard': ENGINE_SYMSPELL,
+            'byt5': ENGINE_BYT5
+        }
+        
+        # Use specified engine, map it if possible, otherwise use as-is or default
+        correction_engine = engine_map.get(engine, engine) if engine else self.default_engine
         
         start_time = time.time()
         try:
-            logger.info(f"[TextCorrector] Calling service at {self.base_url} with text: '{raw_text}', engine: '{correction_engine}'")
+            logger.debug(f"📥 POST /correct - New correction request")
+            logger.debug(f"   📝 Query: '{raw_text}'")
+            logger.debug(f"   🔧 Model: {correction_engine}")
             
             # New API format
             request_payload = {
                 'query': raw_text,
-                'engine': correction_engine,
-                'return_candidates': False,
-                'top_k': 5
+                'model': correction_engine,
             }
             
             response = requests.post(
@@ -88,24 +95,33 @@ class TextCorrectorService:
             response.raise_for_status()
             result = response.json()
             
-            # Parse new response format
-            corrected_text = result.get('corrected', raw_text)
+            # Parse new response format according to user's specified structure
+            # response_json = { "original_query": ..., "corrected_query": ..., 
+            #                   "changed": ..., "model_used": ..., "latency_ms": ... }
+            corrected_text = result.get('corrected_query', result.get('corrected', raw_text))
             changed = result.get('changed', False)
             latency_ms = result.get('latency_ms', 0)
+            actual_model = result.get('model_used', correction_engine)
+            
+            logger.debug(f"📤 Response:")
+            logger.debug(f"   📝 Original:  '{raw_text}'")
+            logger.debug(f"   ✏️  Corrected: '{corrected_text}'")
+            logger.debug(f"   🔄 Changed:   {changed}")
+            logger.debug(f"   ⏱️  Latency:   {latency_ms:.2f}ms")
             
             duration = (time.time() - start_time) * 1000
             
             if changed:
-                logger.info(f"[TextCorrector] Correction applied: '{raw_text}' -> '{corrected_text}' (engine: {correction_engine}, took {duration:.2f}ms)")
+                logger.info(f"✅ '{raw_text}' → '{corrected_text}' (engine: {actual_model}, took {duration:.2f}ms)")
             else:
-                logger.info(f"[TextCorrector] No correction needed for '{raw_text}' (engine: {correction_engine}, took {duration:.2f}ms)")
+                logger.info(f"ℹ️  No correction needed for '{raw_text}' (engine: {actual_model}, took {duration:.2f}ms)")
             
             return {
                 'corrected_text': corrected_text,
                 'success': True,
                 'changed': changed,
                 'latency_ms': latency_ms,
-                'engine': correction_engine
+                'engine': actual_model
             }
         except requests.exceptions.ConnectionError:
             duration = (time.time() - start_time) * 1000

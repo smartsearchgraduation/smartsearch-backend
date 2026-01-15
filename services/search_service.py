@@ -31,7 +31,7 @@ class SearchService:
     """
     
     @staticmethod
-    def execute_search(raw_text: str, image: Optional[str] = None) -> Dict[str, Any]:
+    def execute_search(raw_text: str, image: Optional[str] = None, engine: Optional[str] = None) -> Dict[str, Any]:
         """
         Run a complete search from start to finish.
         
@@ -41,6 +41,7 @@ class SearchService:
         Args:
             raw_text: What the user typed into the search box
             image: Optional path to an uploaded image for visual search
+            engine: Optional correction engine to use
         
         Returns:
             A dict with 'search_id' that can be used to fetch the results
@@ -52,19 +53,22 @@ class SearchService:
         logger.info(f"{'='*60}")
         logger.info(f"[Search] 📝 Raw Text: '{raw_text}'")
         logger.info(f"[Search] 🖼️  Image: {image if image else 'None'}")
+        logger.info(f"[Search] 🔧 Engine: {engine if engine else 'Default'}")
         
         try:
             # Step 1: Text Correction
             logger.info(f"")
             logger.info(f"[Search] ━━━ STEP 1: TEXT CORRECTION ━━━")
             start_correction = time.time()
-            correction_result = text_corrector_service.correct(raw_text)
+            correction_result = text_corrector_service.correct(raw_text, engine=engine)
             corrected_text = correction_result.get('corrected_text', raw_text)
-            correction_duration = (time.time() - start_correction) * 1000
+            actual_engine = correction_result.get('engine', engine or 'UNKNOWN')
+            correction_latency = correction_result.get('latency_ms', 0)  # Time from the correction service response
             
             logger.info(f"[Search] 📥 Input:     '{raw_text}'")
             logger.info(f"[Search] 📤 Output:    '{corrected_text}'")
-            logger.info(f"[Search] ⏱️  Duration:  {correction_duration:.2f}ms")
+            logger.info(f"[Search] 🔧 Engine:    {actual_engine}")
+            logger.info(f"[Search] ⏱️  Duration:  {correction_latency:.2f}ms")
             logger.info(f"[Search] ✏️  Changed:   {raw_text != corrected_text}")
             
             # Step 2: FAISS Search
@@ -163,7 +167,7 @@ class SearchService:
             
             search_time = SearchTime(
                 search_id=search_query.search_id,
-                correction_time=correction_duration,
+                correction_time=correction_latency,
                 faiss_time=faiss_duration,
                 db_time=db_save_duration,
                 backend_total_time=backend_total_duration
@@ -180,7 +184,7 @@ class SearchService:
             logger.info(f"[Search] 🆔 Search ID: {search_query.search_id}")
             logger.info(f"[Search] 📦 Total Products: {len(products)}")
             logger.info(f"[Search] ⏱️  Total Time: {total_duration:.2f}ms")
-            logger.info(f"[Search]    ├─ Correction: {correction_duration:.2f}ms")
+            logger.info(f"[Search]    ├─ Correction: {correction_latency:.2f}ms")
             logger.info(f"[Search]    ├─ FAISS:      {faiss_duration:.2f}ms")
             logger.info(f"[Search]    └─ DB Save:    {db_save_duration:.2f}ms")
             logger.info(f"{'='*60}")

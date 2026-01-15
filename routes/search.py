@@ -60,8 +60,9 @@ def search():
             return jsonify({"error": "Missing 'raw_text' in request body"}), 400
 
         raw_text = data.get('raw_text', '')
+        engine = data.get('engine')  # Extract optional correction engine
         
-        print(f"DEBUG [routes/search.py]: Extracted raw_text='{raw_text}', image='{image}'")
+        print(f"DEBUG [routes/search.py]: Extracted raw_text='{raw_text}', image='{image}', engine='{engine}'")
 
         if not raw_text or not raw_text.strip():
             print("DEBUG [routes/search.py]: 'raw_text' is empty")
@@ -69,7 +70,7 @@ def search():
         
         # Execute search through service
         print("DEBUG [routes/search.py]: Calling SearchService.execute_search...")
-        result = SearchService.execute_search(raw_text, image)
+        result = SearchService.execute_search(raw_text, image, engine=engine)
         print(f"DEBUG [routes/search.py]: SearchService returned: {result}")
         
         # Log total time including Flask overhead
