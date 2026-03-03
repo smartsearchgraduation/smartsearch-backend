@@ -23,6 +23,7 @@ FAISS_SERVICE_URL = os.getenv('FAISS_SERVICE_URL', 'http://localhost:5002/api/re
 FAISS_ADD_PRODUCT_URL = os.getenv('FAISS_ADD_PRODUCT_URL', 'http://localhost:5002/api/retrieval/add-product')
 FAISS_TEXT_SEARCH_URL = os.getenv('FAISS_TEXT_SEARCH_URL', 'http://localhost:5002/api/retrieval/search/text')
 FAISS_LATE_FUSION_URL = os.getenv('FAISS_LATE_FUSION_URL', 'http://localhost:5002/api/retrieval/search/late')
+FAISS_DELETE_PRODUCT_URL = os.getenv('FAISS_DELETE_PRODUCT_URL', 'http://localhost:5002/api/retrieval/delete-product')
 
 
 class FAISSRetrievalService:
@@ -43,6 +44,7 @@ class FAISSRetrievalService:
         self.add_product_url = FAISS_ADD_PRODUCT_URL
         self.text_search_url = FAISS_TEXT_SEARCH_URL
         self.late_fusion_url = FAISS_LATE_FUSION_URL
+        self.delete_product_url = FAISS_DELETE_PRODUCT_URL
 
     def search(
         self,
@@ -105,7 +107,7 @@ class FAISSRetrievalService:
     def search_text(
         self,
         text: str,
-        textual_model_name: str = "ViT-B/32",
+        textual_model_name: str = "BAAI/bge-large-en-v1.5",
         top_k: int = 10
     ) -> Dict[str, Any]:
         """
@@ -169,7 +171,7 @@ class FAISSRetrievalService:
         text: str,
         image_path: str,
         text_weight: float = 0.5,
-        textual_model_name: str = "ViT-B/32",
+        textual_model_name: str = "BAAI/bge-large-en-v1.5",
         visual_model_name: str = "ViT-B/32",
         top_k: int = 10
     ) -> Dict[str, Any]:
@@ -249,7 +251,7 @@ class FAISSRetrievalService:
         category: str,
         price: float,
         images: List[str],
-        textual_model_name: str = "ViT-B/32",
+        textual_model_name: str = "BAAI/bge-large-en-v1.5",
         visual_model_name: str = "ViT-B/32",
         fused_model_name: str = "ViT-B/32"
     ) -> Dict[str, Any]:
@@ -300,11 +302,15 @@ class FAISSRetrievalService:
                         full_path = os.path.join(upload_folder, img_path)
                     else:
                         full_path = img_path
+                    
+                    # Normalize path to use forward slashes for cross-platform compatibility
+                    full_path = full_path.replace('\\', '/')
                         
-                    if not os.path.exists(full_path):
+                    if not os.path.exists(full_path.replace('/', '\\')):  # Check with native path
                         logger.warning(f"[FAISS] Image not found: {full_path}")
                     else:
                         valid_images.append(full_path)
+                        logger.info(f"[FAISS] Valid image path: {full_path}")
             
             start_time = time.time()
             
@@ -321,6 +327,9 @@ class FAISSRetrievalService:
                 'visual_model_name': visual_model_name,
                 'fused_model_name': fused_model_name
             }
+            
+            # Debug: Log full payload for troubleshooting
+            logger.info(f"[FAISS] Full add_product payload: {payload}")
             
             response = requests.post(
                 self.add_product_url,
@@ -379,6 +388,77 @@ class FAISSRetrievalService:
             logger.error(f"[FAISS] Error adding product {product_id}: {e}")
             return {"status": "error", "error": str(e)}
 
+    def delete_product(self, product_id: str) -> Dict[str, Any]:
+        """
+        Delete a product from the FAISS search index.
+        
+        This sends a DELETE request to the FAISS service to remove all embeddings
+        (textual and visual) associated with the given product ID.
+        
+        Args:
+            product_id: The unique ID of the product to delete
+        
+        Returns:
+            Result dict with status indicating success or failure
+        """
+        if not HAS_REQUESTS:
+            logger.warning("[FAISS] requests library not installed")
+            return {"status": "error", "error": "requests library not installed"}
+        
+        try:
+            logger.info(f"[FAISS] Deleting product {product_id} from index")
+            
+            start_time = time.time()
+            
+            # Build the URL with product_id
+            url = f"{self.delete_product_url}/{product_id}"
+            
+            response = requests.delete(
+                url,
+                timeout=30
+            )
+            
+            duration = (time.time() - start_time) * 1000
+            
+            if response.status_code == 404:
+                logger.warning(f"[FAISS] Product {product_id} not found in FAISS index (took {duration:.2f}ms)")
+                return {"status": "success", "message": f"Product {product_id} not in FAISS index"}
+            
+            if response.status_code not in [200, 204]:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get('error', response.text)
+                except:
+                    error_msg = response.text
+                
+                logger.error(f"[FAISS] Failed to delete product {product_id}: {response.status_code} - {error_msg}")
+                return {"status": "error", "error": f"FAISS Error ({response.status_code}): {error_msg}"}
+            
+            # Try to parse response if present
+            try:
+                result = response.json()
+            except:
+                result = {}
+            
+            logger.info(f"[FAISS] Successfully deleted product {product_id} from index (took {duration:.2f}ms)")
+            
+            return {
+                "status": "success",
+                "message": f"Product {product_id} deleted from FAISS index",
+                "details": result
+            }
+            
+        except requests.exceptions.ConnectionError:
+            logger.error(f"[FAISS] Service not available at {self.delete_product_url}")
+            return {"status": "error", "error": "FAISS service not available"}
+        except requests.exceptions.Timeout:
+            logger.error(f"[FAISS] Request timeout deleting product {product_id}")
+            return {"status": "error", "error": "Request timeout"}
+        except Exception as e:
+            logger.error(f"[FAISS] Error deleting product {product_id}: {e}")
+            return {"status": "error", "error": str(e)}
+
 
 # Create a single shared instance for the whole app
 faiss_service = FAISSRetrievalService()
+

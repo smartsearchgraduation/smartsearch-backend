@@ -31,13 +31,17 @@ def search():
     """
     start_time = time.time()
     try:
-        data = request.get_json()
-        print(f"DEBUG [routes/search.py]: Received search request data: {data}")
+        # Get all form data
+        form_data = request.form.to_dict()
+        images = request.files.getlist('images')
+        image = images[0] if len(images) > 0 else None
+        
+        print(f"DEBUG [routes/search.py]: Received form data: {form_data}")
+        print(f"DEBUG [routes/search.py]: Images: {images}")
 
         # Check if this is a raw text search request
-        raw_text_flag = data.get('raw_text_flag', False)
-        original_search_id = data.get('search_id')
-        image = data.get('image')
+        raw_text_flag = form_data.get('raw_text_flag', '').lower() == 'true'
+        original_search_id = form_data.get('search_id')
         
         # If raw_text_flag is True and search_id is provided, use raw text search
         if raw_text_flag and original_search_id:
@@ -54,20 +58,20 @@ def search():
                 'original_search_id': result['original_search_id']
             }), 201
 
-        # Normal search flow - validate request
-        if not data or 'raw_text' not in data:
-            print("DEBUG [routes/search.py]: Missing 'raw_text' in request body")
-            return jsonify({"error": "Missing 'raw_text' in request body"}), 400
+        # Validate raw_text
+        raw_text = form_data.get('raw_text')
+        if not raw_text:
+            print("DEBUG [routes/search.py]: Missing 'raw_text' in request")
+            return jsonify({"error": "Missing 'raw_text' in request"}), 400
 
-        raw_text = data.get('raw_text', '')
-        engine = data.get('engine')  # Extract optional correction engine
-        
-        print(f"DEBUG [routes/search.py]: Extracted raw_text='{raw_text}', image='{image}', engine='{engine}'")
-
-        if not raw_text or not raw_text.strip():
+        if not raw_text.strip():
             print("DEBUG [routes/search.py]: 'raw_text' is empty")
             return jsonify({"error": "'raw_text' cannot be empty"}), 400
-        
+
+        engine = form_data.get('engine')
+
+        print(f"DEBUG [routes/search.py]: Extracted raw_text='{raw_text}', engine='{engine}'")
+
         # Execute search through service
         print("DEBUG [routes/search.py]: Calling SearchService.execute_search...")
         result = SearchService.execute_search(raw_text, image, engine=engine)
@@ -77,7 +81,6 @@ def search():
         duration = (time.time() - start_time) * 1000
         logger.info(f"[Search Route] 🏁 Total Request Time (incl. Flask): {duration:.2f}ms")
         
-        # Return search_id and raw_text
         return jsonify({
             'search_id': result['search_id']
         }), 201

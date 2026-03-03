@@ -56,7 +56,8 @@ def create_app(config_class=None):
         brands_bp,
         categories_bp,
         retrieval_bp,
-        analytics_bp
+        analytics_bp,
+        bulk_faiss_bp
     )
     
     app.register_blueprint(search_bp)
@@ -67,6 +68,7 @@ def create_app(config_class=None):
     app.register_blueprint(categories_bp)
     app.register_blueprint(retrieval_bp)
     app.register_blueprint(analytics_bp, url_prefix='/api/analytics')
+    app.register_blueprint(bulk_faiss_bp)
     
     # Create database tables if they don't exist
     with app.app_context():
@@ -105,6 +107,9 @@ if __name__ == '__main__':
     print("   POST   /api/retrieval/search/text   (FAISS Text)")
     print("   POST   /api/retrieval/search/late   (FAISS Late Fusion)")
     print("   POST   /api/analytics/search-duration (Client Metrics)")
+    print("   GET    /api/bulk-faiss/             (Web UI - FAISS Bulk Import)")
+    print("   GET    /api/bulk-faiss/stats        (Get Import Stats)")
+    print("   POST   /api/bulk-faiss/add-all      (Add All Products to FAISS)")
     print("   GET    /health")
     print("   GET    /uploads/products/<filename>   (serve images)")
     print(f" Database: {app.config['SQLALCHEMY_DATABASE_URI'].split('@')[1] if '@' in app.config['SQLALCHEMY_DATABASE_URI'] else 'N/A'}")

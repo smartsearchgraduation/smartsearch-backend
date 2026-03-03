@@ -120,7 +120,7 @@ class TextCorrectorService:
                 'corrected_text': corrected_text,
                 'success': True,
                 'changed': changed,
-                'latency_ms': latency_ms,
+                'latency_ms': duration,
                 'engine': actual_model
             }
         except requests.exceptions.ConnectionError:

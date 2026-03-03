@@ -59,7 +59,6 @@ class SearchService:
             # Step 1: Text Correction
             logger.info(f"")
             logger.info(f"[Search] ━━━ STEP 1: TEXT CORRECTION ━━━")
-            start_correction = time.time()
             correction_result = text_corrector_service.correct(raw_text, engine=engine)
             corrected_text = correction_result.get('corrected_text', raw_text)
             actual_engine = correction_result.get('engine', engine or 'UNKNOWN')
@@ -473,7 +472,10 @@ class SearchService:
                             images_base64.append(f"data:{mimetype};base64,{b64_data}")
                         except Exception as e:
                             logger.warning(f"[Search] Failed to read image {file_path}: {e}")
-                
+                score = float(row[2]) if row[2] else None
+                if score is not None and score <= 0.465:
+                    continue
+
                 products.append({
                     'product_id': row[3],
                     'name': row[4],

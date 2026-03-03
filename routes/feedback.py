@@ -1,6 +1,7 @@
 """
 API routes for user feedback and click tracking on search results.
 """
+import traceback
 from flask import Blueprint, request, jsonify
 
 from models import db, Retrieve, SearchQuery
@@ -16,33 +17,55 @@ def feedback():
     Send the query_id, product_id, and is_relevant (true/false).
     We use this to improve search quality over time.
     """
+    print("\n" + "="*60)
+    print("[FEEDBACK] POST /api/feedback called")
+    print("="*60)
+    
     try:
         data = request.get_json()
+        print(f"[FEEDBACK] Request data: {data}")
         
         # Validate request
         if not data or 'query_id' not in data or 'product_id' not in data or 'is_relevant' not in data:
+            print("[FEEDBACK] ERROR: Missing required fields")
             return jsonify({"error": "Missing required fields: query_id, product_id, is_relevant"}), 400
         
-        query_id = data['query_id']
-        product_id = data['product_id']
+        # Convert to int to ensure proper DB type matching (BigInteger)
+        query_id = int(data['query_id'])
+        product_id = int(data['product_id'])
         is_relevant = data['is_relevant']
         
+        print(f"[FEEDBACK] query_id={query_id}, product_id={product_id}, is_relevant={is_relevant}")
+        print(f"[FEEDBACK] Types - query_id: {type(query_id)}, product_id: {type(product_id)}")
+        
         # Find the retrieve record
+        print(f"[FEEDBACK] Searching for Retrieve record with search_id={query_id}, product_id={product_id}")
         retrieve = Retrieve.query.filter_by(
             search_id=query_id,
             product_id=product_id
         ).first()
         
         if not retrieve:
+            print(f"[FEEDBACK] ERROR: No Retrieve record found!")
+            # Debug: show what records exist for this search_id
+            existing = Retrieve.query.filter_by(search_id=int(query_id)).all()
+            print(f"[FEEDBACK] Existing records for search_id={query_id}: {len(existing)}")
+            for r in existing[:5]:
+                print(f"  - product_id={r.product_id}, rank={r.rank}")
             return jsonify({"error": "Search result not found"}), 404
+        
+        print(f"[FEEDBACK] Found Retrieve record: {retrieve}")
         
         # Update feedback
         retrieve.is_relevant = is_relevant
         db.session.commit()
         
+        print(f"[FEEDBACK] SUCCESS: Updated is_relevant to {is_relevant}")
         return jsonify({"ok": True}), 200
         
     except Exception as e:
+        print(f"[FEEDBACK] EXCEPTION: {type(e).__name__}: {str(e)}")
+        print(f"[FEEDBACK] Traceback:\n{traceback.format_exc()}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
@@ -55,32 +78,53 @@ def click():
     Send query_id and product_id so we know which result was clicked.
     Helps us measure how useful our search results are.
     """
+    print("\n" + "="*60)
+    print("[CLICK] POST /api/click called")
+    print("="*60)
+    
     try:
         data = request.get_json()
+        print(f"[CLICK] Request data: {data}")
         
         # Validate request
         if not data or 'query_id' not in data or 'product_id' not in data:
+            print("[CLICK] ERROR: Missing required fields")
             return jsonify({"error": "Missing required fields: query_id, product_id"}), 400
         
-        query_id = data['query_id']
-        product_id = data['product_id']
+        # Convert to int to ensure proper DB type matching (BigInteger)
+        query_id = int(data['query_id'])
+        product_id = int(data['product_id'])
+        
+        print(f"[CLICK] query_id={query_id}, product_id={product_id}")
+        print(f"[CLICK] Types - query_id: {type(query_id)}, product_id: {type(product_id)}")
         
         # Find the retrieve record
+        print(f"[CLICK] Searching for Retrieve record...")
         retrieve = Retrieve.query.filter_by(
             search_id=query_id,
             product_id=product_id
         ).first()
         
         if not retrieve:
+            print(f"[CLICK] ERROR: No Retrieve record found!")
+            existing = Retrieve.query.filter_by(search_id=int(query_id)).all()
+            print(f"[CLICK] Existing records for search_id={query_id}: {len(existing)}")
+            for r in existing[:5]:
+                print(f"  - product_id={r.product_id}, rank={r.rank}")
             return jsonify({"error": "Search result not found"}), 404
+        
+        print(f"[CLICK] Found Retrieve record: {retrieve}")
         
         # Update click status
         retrieve.is_clicked = True
         db.session.commit()
         
+        print(f"[CLICK] SUCCESS: Updated is_clicked to True")
         return jsonify({"ok": True}), 200
         
     except Exception as e:
+        print(f"[CLICK] EXCEPTION: {type(e).__name__}: {str(e)}")
+        print(f"[CLICK] Traceback:\n{traceback.format_exc()}")
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 

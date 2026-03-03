@@ -616,40 +616,52 @@ def update_product(product_id):
         product.updated_at = datetime.utcnow()
         db.session.commit()
         
-        # Update FAISS index if images were changed
-        if images_updated:
-            try:
-                upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/products')
-                abs_upload_folder = os.path.abspath(upload_folder)
-                
-                absolute_image_paths = []
-                for url in saved_image_urls:
-                    filename = os.path.basename(url)
-                    abs_path = os.path.join(abs_upload_folder, filename)
-                    absolute_image_paths.append(abs_path)
-                
-                # Get category names
-                category_names = [c.name for c in product.categories]
-                category_str = ", ".join(category_names) if category_names else ""
-                
-                # Get brand name
-                brand_name_for_faiss = product.brand.name if product.brand else ""
-                
-                # Re-index the product in FAISS (add with same ID should update)
-                faiss_result = faiss_service.add_product(
-                    product_id=str(product.product_id),
-                    name=product.name,
-                    description=product.description or "",
-                    brand=brand_name_for_faiss,
-                    category=category_str,
-                    price=float(product.price) if product.price else 0.0,
-                    images=absolute_image_paths
-                )
-                
-                if faiss_result.get('status') == 'error':
-                    print(f"Warning: Updated DB but failed to update FAISS: {faiss_result.get('error')}", file=sys.stderr)
-            except Exception as e:
-                print(f"Error updating FAISS: {e}", file=sys.stderr)
+        # Update FAISS index - delete and re-add to ensure all changes are reflected
+        try:
+            # First, delete the old entry from FAISS
+            delete_result = faiss_service.delete_product(str(product.product_id))
+            if delete_result.get('status') == 'error':
+                print(f"Warning: Failed to delete from FAISS before re-add: {delete_result.get('error')}", file=sys.stderr)
+            
+            # Prepare image paths
+            upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/products')
+            abs_upload_folder = os.path.abspath(upload_folder)
+            
+            # If images were updated, use the new saved_image_urls, otherwise get existing from DB
+            if images_updated:
+                image_urls = saved_image_urls
+            else:
+                existing_images = ProductImage.query.filter_by(product_id=product.product_id).order_by(ProductImage.image_no).all()
+                image_urls = [img.url for img in existing_images]
+            
+            absolute_image_paths = []
+            for url in image_urls:
+                filename = os.path.basename(url)
+                abs_path = os.path.join(abs_upload_folder, filename)
+                absolute_image_paths.append(abs_path)
+            
+            # Get category names
+            category_names = [c.name for c in product.categories]
+            category_str = ", ".join(category_names) if category_names else ""
+            
+            # Get brand name
+            brand_name_for_faiss = product.brand.name if product.brand else ""
+            
+            # Re-add the product to FAISS with updated info
+            faiss_result = faiss_service.add_product(
+                product_id=str(product.product_id),
+                name=product.name,
+                description=product.description or "",
+                brand=brand_name_for_faiss,
+                category=category_str,
+                price=float(product.price) if product.price else 0.0,
+                images=absolute_image_paths
+            )
+            
+            if faiss_result.get('status') == 'error':
+                print(f"Warning: Updated DB but failed to re-add to FAISS: {faiss_result.get('error')}", file=sys.stderr)
+        except Exception as e:
+            print(f"Error updating FAISS: {e}", file=sys.stderr)
         
         return jsonify({
             "message": "Product updated successfully",
@@ -668,7 +680,7 @@ def update_product(product_id):
 
 @products_bp.route('/products/<int:product_id>', methods=['DELETE'])
 def delete_product(product_id):
-    """Remove a product and all its associated data."""
+    """Remove a product and all its associated data (including FAISS index)."""
     try:
         product = Product.query.get(product_id)
         if not product:
@@ -676,6 +688,14 @@ def delete_product(product_id):
         
         db.session.delete(product)
         db.session.commit()
+        
+        # Also delete from FAISS index
+        try:
+            faiss_result = faiss_service.delete_product(str(product_id))
+            if faiss_result.get('status') == 'error':
+                print(f"Warning: Deleted from DB but failed to delete from FAISS: {faiss_result.get('error')}", file=sys.stderr)
+        except Exception as e:
+            print(f"Error deleting from FAISS: {e}", file=sys.stderr)
         
         return jsonify({"ok": True, "message": "Product deleted"}), 200
     

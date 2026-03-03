@@ -9,6 +9,7 @@ from .brands import brands_bp
 from .categories import categories_bp
 from .retrieval import retrieval_bp
 from .analytics import analytics_bp
+from .bulk_faiss import bulk_faiss_bp
 
 __all__ = [
     'search_bp',
@@ -18,5 +19,6 @@ __all__ = [
     'brands_bp',
     'categories_bp',
     'retrieval_bp',
-    'analytics_bp'
+    'analytics_bp',
+    'bulk_faiss_bp'
 ]
