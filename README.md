@@ -16,6 +16,8 @@ Flask-based REST API serving as a middle layer between frontend UI and FAISS-bas
   - [Products](#products)
   - [Brands](#brands)
   - [Categories](#categories)
+  - [FAISS Retrieval](#faiss-retrieval)
+  - [FAISS Bulk Import](#faiss-bulk-import)
   - [Feedback & Analytics](#feedback--analytics)
   - [Health](#health)
 - [Services](#-services)
@@ -586,6 +588,100 @@ Create a new category.
 
 ---
 
+### FAISS Retrieval
+
+#### `POST /api/retrieval/search/text`
+
+Perform a text-only vector search directly through FAISS.
+
+**Request:**
+```json
+{
+  "text": "search query",
+  "textual_model_name": "ViT-B/32",
+  "top_k": 10
+}
+```
+
+---
+
+#### `POST /api/retrieval/search/late`
+
+Perform a late fusion search (combining text and image vector representations).
+
+**Request:**
+```json
+{
+  "text": "search query",
+  "image": "path_or_url_to_image",
+  "text_weight": 0.5,
+  "textual_model_name": "ViT-B/32",
+  "visual_model_name": "ViT-B/32",
+  "top_k": 10
+}
+```
+
+---
+
+#### `POST /api/retrieval/add-product`
+
+Add or update a product in the FAISS vector database.
+
+**Request:**
+```json
+{
+  "id": 1,
+  "name": "Product Name",
+  "description": "Optional description",
+  "brand": "Brand",
+  "category": "Category1",
+  "price": 100.0,
+  "images": ["path1.jpg"],
+  "textual_model_name": "ViT-B/32",
+  "visual_model_name": "ViT-B/32",
+  "fused_model_name": "ViT-B/32"
+}
+```
+
+---
+
+### FAISS Bulk Import
+
+#### `GET /api/bulk-faiss/`
+
+Render a Web UI for managing bulk import of products into FAISS.
+
+---
+
+#### `GET /api/bulk-faiss/stats`
+
+Get statistics on total products vs products successfully indexed in FAISS.
+
+**Response (200):**
+```json
+{
+  "total_products": 150,
+  "total_images": 200,
+  "faiss_available": true
+}
+```
+
+---
+
+#### `POST /api/bulk-faiss/add-all`
+
+Trigger a bulk synchronization of all products into the FAISS vector indices.
+
+**Request (Optional):**
+```json
+{
+  "textual_model_name": "ViT-B/32",
+  "visual_model_name": "ViT-B/32"
+}
+```
+
+---
+
 ### Feedback & Analytics
 
 #### `POST /api/feedback`
@@ -631,6 +727,21 @@ Get analytics metrics.
   "negative_feedback": 22,
   "click_through_rate": 0.3,
   "avg_retrieval_time_ms": 145.5
+}
+```
+
+---
+
+#### `POST /api/analytics/search-duration`
+
+Log the end-to-end search duration experienced by the client.
+
+**Request:**
+```json
+{
+  "search_id": 123,
+  "search_duration": 1234,
+  "product_load_duration": 12345
 }
 ```
 
