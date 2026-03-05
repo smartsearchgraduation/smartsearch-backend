@@ -11,7 +11,7 @@ import time
 import requests
 
 # Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 from app import create_app
 from models.product import Product
@@ -26,7 +26,7 @@ VISUAL_MODEL = "ViT-B/32"   # Model for image embeddings
 FAISS_ADD_PRODUCT_URL = "http://localhost:5002/api/retrieval/add-product"
 
 # Upload folder for images
-UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'products')
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads', 'products')
 # ============================================
 
 

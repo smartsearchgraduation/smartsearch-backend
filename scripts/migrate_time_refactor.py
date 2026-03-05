@@ -2,8 +2,9 @@
 Migration script to create search_time table and update retrieve table.
 Run this script manually: python migrate_time_refactor.py
 """
-import sys
+import os
 import logging
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 from app import create_app
 from models import db
 

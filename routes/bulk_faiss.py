@@ -9,7 +9,7 @@ from flask import Blueprint, request, jsonify, render_template_string, current_a
 from models import db
 from models.product import Product
 from services.faiss_retrieval_service import faiss_service
-from model_config.models import AVAILABLE_MODELS, DEFAULT_TEXTUAL_MODEL, DEFAULT_VISUAL_MODEL, is_valid_model
+from config.models import AVAILABLE_MODELS, DEFAULT_TEXTUAL_MODEL, DEFAULT_VISUAL_MODEL, is_valid_model
 
 logger = logging.getLogger(__name__)
 

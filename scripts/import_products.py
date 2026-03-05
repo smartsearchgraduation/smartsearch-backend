@@ -18,7 +18,7 @@ from PIL import Image
 from io import BytesIO
 
 # Add the project root to Python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 from app import create_app
 from models import db, Product, ProductImage, Brand, Category
@@ -28,7 +28,7 @@ from services.faiss_retrieval_service import faiss_service
 # Configuration
 MAX_IMAGE_SIZE = 800  # Max width or height in pixels
 IMAGE_QUALITY = 85    # JPEG quality (1-100)
-NEW_FOLDER_PATH = os.path.join(os.path.dirname(__file__), 'New folder')
+NEW_FOLDER_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'seed-data')
 
 # Map category names to category IDs (you may need to adjust these based on your DB)
 CATEGORY_MAP = {

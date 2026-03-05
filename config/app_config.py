@@ -20,7 +20,7 @@ class Config:
     BASE_URL = os.getenv('BASE_URL', 'http://localhost:5000')
     
     # Upload settings
-    UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads', 'products')
+    UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads', 'products')
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
     
@@ -44,7 +44,7 @@ class Config:
     SQLALCHEMY_ECHO = os.getenv('SQLALCHEMY_ECHO', 'False').lower() == 'true'
     
     # Data directory for any remaining file-based storage
-    DATA_DIR = os.getenv('DATA_DIR', 'data')
+    DATA_DIR = os.getenv('DATA_DIR', os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data'))
 
 
 class DevelopmentConfig(Config):

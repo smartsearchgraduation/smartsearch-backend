@@ -1,6 +1,6 @@
-"""
-Test script to verify analytics endpoint accepts 0 values.
-"""
+import os
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 import unittest
 import json
 from app import create_app
