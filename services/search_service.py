@@ -94,12 +94,16 @@ class SearchService:
             # Log FAISS response details
             logger.info(f"[Search] 📊 FAISS Response Keys: {list(faiss_result.keys())}")
             logger.info(f"[Search] ✅ Status: {faiss_result.get('status', faiss_result.get('success', 'unknown'))}")
-            
-            # Parse FAISS results
+
+            # Parse FAISS results and extract model info
             faiss_products = faiss_result.get('products') or faiss_result.get('results') or []
             is_success = faiss_result.get('success') is True or faiss_result.get('status') == 'success'
             faiss_success = is_success and len(faiss_products) > 0
             
+            # Extract model information from FAISS response
+            textual_model_used = faiss_result.get('textual_model_name')
+            visual_model_used = faiss_result.get('visual_model_name')
+
             logger.info(f"[Search] 📦 Products Found: {len(faiss_products)}")
             logger.info(f"[Search] ⏱️  Duration: {faiss_duration:.2f}ms")
             
@@ -154,7 +158,10 @@ class SearchService:
                     search_id=search_query.search_id,
                     product_id=product_info['product_id'],
                     rank=rank,
-                    weight=product_info['score']
+                    weight=product_info['score'],
+                    textual_model_name=textual_model_used,
+                    visual_model_name=visual_model_used,
+                    correction_engine=actual_engine
                 )
                 db.session.add(retrieve)
             
@@ -262,13 +269,17 @@ class SearchService:
                 )
             
             search_duration = (time.time() - start_search) * 1000
-            
+
             # FAISS can return results in different formats, so handle both
             faiss_products = faiss_result.get('products') or faiss_result.get('results') or []
             is_success = faiss_result.get('success') is True or faiss_result.get('status') == 'success'
-            
+
             faiss_success = is_success and len(faiss_products) > 0
             
+            # Extract model information from FAISS response
+            textual_model_used = faiss_result.get('textual_model_name')
+            visual_model_used = faiss_result.get('visual_model_name')
+
             logger.info(f"[Search] 📊 FAISS Response Keys: {list(faiss_result.keys())}")
             logger.info(f"[Search] ✅ Status: {faiss_result.get('status', faiss_result.get('success', 'unknown'))}")
             logger.info(f"[Search] 📦 Products Found: {len(faiss_products)}")
@@ -326,7 +337,10 @@ class SearchService:
                     search_id=new_search_query.search_id,
                     product_id=product_info['product_id'],
                     rank=rank,
-                    weight=product_info['score']
+                    weight=product_info['score'],
+                    textual_model_name=textual_model_used,
+                    visual_model_name=visual_model_used,
+                    correction_engine='rawtext'  # No correction applied
                 )
                 db.session.add(retrieve)
             

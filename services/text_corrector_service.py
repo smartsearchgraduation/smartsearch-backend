@@ -17,27 +17,35 @@ logger = logging.getLogger(__name__)
 
 # Service URLs from environment
 CORRECTION_SERVICE_URL = os.getenv('CORRECTION_SERVICE_URL', 'http://localhost:5001/correct')
+CORRECTION_MODELS_URL = os.getenv('CORRECTION_MODELS_URL', 'http://localhost:5001/models')
 
 # Available correction engines
 ENGINE_SYMSPELL = 'symspell_keyboard'
 ENGINE_BYT5 = 'byt5'
 DEFAULT_ENGINE = ENGINE_BYT5
 
+# Available correction models
+AVAILABLE_CORRECTION_MODELS = {
+    ENGINE_SYMSPELL: "SymSpell (Hızlı - Keyboard Based)",
+    ENGINE_BYT5: "ByT5 Finetuned (ML Model - Daha Doğru)",
+}
+
 
 class TextCorrectorService:
     """
     A simple service for the text correction microservice.
-    
+
     This fixes typos and spelling mistakes in search queries before we send
     them to FAISS. For example, "iphnoe" becomes "iphone".
-    
+
     Supports two engines:
     - symspell_keyboard: Fast, dictionary-based correction
     - byt5_finetuned: ML-based correction using fine-tuned ByT5 model
     """
-    
+
     def __init__(self, base_url: str = None, default_engine: str = None):
         self.base_url = base_url or CORRECTION_SERVICE_URL
+        self.models_url = CORRECTION_MODELS_URL
         self.default_engine = default_engine or DEFAULT_ENGINE
     
     def correct(self, raw_text: str, engine: Optional[str] = None) -> Dict[str, Any]:
@@ -140,6 +148,79 @@ class TextCorrectorService:
                 'success': False,
                 'changed': False,
                 'latency_ms': duration
+            }
+
+    def get_available_models(self) -> Dict[str, Any]:
+        """
+        Get the list of available text correction models from the correction service.
+
+        Fetches the supported spell-checking and typo correction models.
+        This is useful for populating UI dropdowns or validating model selections.
+
+        Returns:
+            Dict with 'models' list containing model objects with 'id' and 'name' fields,
+            plus the default model. Falls back to local config if service is unavailable.
+        """
+        if not HAS_REQUESTS:
+            logger.warning("[TextCorrector] requests library not installed, using local config")
+            return self._get_local_models()
+
+        try:
+            logger.info(f"[TextCorrector] Fetching available models from {self.models_url}")
+
+            response = requests.get(
+                self.models_url,
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"[TextCorrector] Successfully fetched available models")
+                return {
+                    "status": "success",
+                    "data": result.get('data', result),
+                    "source": "correction_service"
+                }
+            else:
+                logger.warning(f"[TextCorrector] Models endpoint returned {response.status_code}, using local config")
+                return self._get_local_models()
+
+        except requests.exceptions.ConnectionError:
+            logger.warning(f"[TextCorrector] Service not available at {self.models_url}, using local config")
+            return self._get_local_models()
+        except requests.exceptions.Timeout:
+            logger.warning(f"[TextCorrector] Request timeout fetching models, using local config")
+            return self._get_local_models()
+        except Exception as e:
+            logger.error(f"[TextCorrector] Error fetching models: {e}, using local config")
+            return self._get_local_models()
+
+    def _get_local_models(self) -> Dict[str, Any]:
+        """
+        Get available correction models from local configuration as a fallback.
+
+        Returns:
+            Dict with models list from AVAILABLE_CORRECTION_MODELS
+        """
+        try:
+            models = [
+                {"id": model_id, "name": display_name}
+                for model_id, display_name in AVAILABLE_CORRECTION_MODELS.items()
+            ]
+
+            return {
+                "status": "success",
+                "data": {
+                    "models": models,
+                    "default": DEFAULT_ENGINE
+                },
+                "source": "local_config"
+            }
+        except Exception as e:
+            logger.error(f"[TextCorrector] Error loading local models: {e}")
+            return {
+                "status": "error",
+                "error": f"Failed to load models: {str(e)}"
             }
 
 

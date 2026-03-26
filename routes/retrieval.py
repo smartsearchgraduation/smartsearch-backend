@@ -160,13 +160,119 @@ def add_product():
         if result.get('status') == 'error':
             logger.error(f"[Retrieval] Failed to add product {product_id}: {result.get('error')}")
             return jsonify(result), 500
-        
+
         logger.info(f"[Retrieval] Successfully added product {product_id} to FAISS")
         return jsonify(result), 200
-        
+
     except Exception as e:
         logger.error(f"[Retrieval] Unexpected error: {e}")
         return jsonify({
             "status": "error",
             "error": "An unexpected error occurred"
+        }), 500
+
+
+@retrieval_bp.route('/models', methods=['GET'])
+def get_available_models():
+    """
+    Get the list of available textual and visual models from the FAISS service.
+
+    Returns a list of supported embedding models that can be used for search
+    operations. This endpoint is useful for populating UI dropdowns or
+    validating model selections.
+
+    The response includes:
+    - textual_models: Models available for text embedding
+    - visual_models: Models available for image embedding
+    - defaults: Default model selections for both text and visual
+    - source: Whether the data came from 'faiss_service' or 'local_config'
+    """
+    try:
+        logger.info("[Retrieval] Fetching available models")
+
+        result = faiss_service.get_available_models()
+
+        if result.get('status') == 'error':
+            logger.warning(f"[Retrieval] Models fetch returned error: {result.get('error')}")
+            return jsonify(result), 500
+
+        logger.info(f"[Retrieval] Successfully fetched models from {result.get('source', 'unknown')}")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"[Retrieval] Unexpected error fetching models: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
+
+
+@retrieval_bp.route('/clear-index', methods=['DELETE'])
+def clear_index():
+    """
+    Clear all products from the FAISS search index.
+
+    Use this endpoint when you need to rebuild the entire index from scratch,
+    for example after changing embedding models. This will delete all textual
+    and visual embeddings from the FAISS index.
+
+    After clearing, you should add products back using either:
+    - POST /api/retrieval/add-product (single product)
+    - POST /api/bulk-faiss/add-all (all products from database)
+    """
+    try:
+        logger.info("[Retrieval] Clearing FAISS index")
+
+        result = faiss_service.clear_index()
+
+        if result.get('status') == 'error':
+            logger.error(f"[Retrieval] Clear index failed: {result.get('error')}")
+            return jsonify(result), 500
+
+        logger.info(f"[Retrieval] Index cleared: {result.get('details', {})}")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"[Retrieval] Unexpected error clearing index: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
+
+
+@retrieval_bp.route('/test-product', methods=['POST'])
+def add_test_product():
+    """
+    Add a test product to verify FAISS service is working.
+
+    This endpoint adds a minimal test product to the FAISS index to perform
+    a smoke test. Use this after clearing the index to verify the FAISS
+    service is responsive before running a bulk import.
+
+    Send optional JSON body with "product_id" to customize the test product ID.
+    """
+    try:
+        data = request.get_json() or {}
+        product_id = data.get('product_id', 'test-product-001')
+
+        logger.info(f"[Retrieval] Adding test product: {product_id}")
+
+        result = faiss_service.add_test_product(product_id=product_id)
+
+        if result.get('status') == 'error':
+            logger.error(f"[Retrieval] Test product failed: {result.get('error')}")
+            return jsonify(result), 500
+
+        logger.info(f"[Retrieval] Test product added successfully: {product_id}")
+        return jsonify({
+            "status": "success",
+            "message": f"Test product {product_id} added successfully",
+            "details": result.get('details', {})
+        }), 200
+
+    except Exception as e:
+        logger.error(f"[Retrieval] Unexpected error adding test product: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e)
         }), 500

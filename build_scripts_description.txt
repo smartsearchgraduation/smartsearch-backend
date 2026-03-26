@@ -1,0 +1,23 @@
+Build Scripts
+
+During the development of the SmartSearch ecosystem, we have used Python's native environment tools and automation scripts to manage local servers, AI models, and databases across all our repositories. We consistently employ several terminal commands and batch files to streamline our development workflow:
+
+1. SMARTSEARCH BACKEND
+- pip install -r requirements.txt -> Checks and updates backend dependencies (Flask, SQLAlchemy, etc.).
+- start_dev.bat -> Automates virtual environment activation and launches the main Flask development server.
+- start_server.bat -> Runs the production-grade Waitress server for backend performance testing.
+- python run_tests_fancy.py -> Executes our custom automated test runner for unit and integration tests.
+- python -m scripts.import_products -> Ingests product data into the database and prepares the search system.
+
+2. SMARTSEARCH CORRECTION (AI Text Processing)
+- run_api.bat -> Automatically activates the venv and launches the AI spell-correction API (api.py).
+- pip install -r requirements.txt -> Installs essential AI libraries like Transformers and Byt5 components.
+- python fine_tune/train.py -> Script used during development to fine-tune the typo correction models on custom data.
+
+3. SMARTSEARCH RETRIEVAL (Vector Engine)
+- start_app.bat -> Activates the environment and starts the FAISS-based vector search service (app.py).
+- python test_fused_model.py -> A specialized script to verify the multimodal (text+image) retrieval logic.
+- python test_textual_model.py -> Validates the performance of the pure text-based search embeddings.
+- python test_visual_model.py -> Tests the visual feature extraction and image matching accuracy.
+
+Initially, we used Python’s virtual environment (venv) to create isolated workspaces for each repository. Following the initial setup, we primarily use these batch files and scripts to orchestrate the backend, correction service, and retrieval engine simultaneously. We use Git to track changes across all components and ensure version consistency across the entire ecosystem.

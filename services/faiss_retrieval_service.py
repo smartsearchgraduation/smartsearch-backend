@@ -24,6 +24,8 @@ FAISS_ADD_PRODUCT_URL = os.getenv('FAISS_ADD_PRODUCT_URL', 'http://localhost:500
 FAISS_TEXT_SEARCH_URL = os.getenv('FAISS_TEXT_SEARCH_URL', 'http://localhost:5002/api/retrieval/search/text')
 FAISS_LATE_FUSION_URL = os.getenv('FAISS_LATE_FUSION_URL', 'http://localhost:5002/api/retrieval/search/late')
 FAISS_DELETE_PRODUCT_URL = os.getenv('FAISS_DELETE_PRODUCT_URL', 'http://localhost:5002/api/retrieval/delete-product')
+FAISS_MODELS_URL = os.getenv('FAISS_MODELS_URL', 'http://localhost:5002/api/retrieval/models')
+FAISS_CLEAR_INDEX_URL = os.getenv('FAISS_CLEAR_INDEX_URL', 'http://localhost:5002/api/retrieval/clear-index')
 
 
 class FAISSRetrievalService:
@@ -45,6 +47,8 @@ class FAISSRetrievalService:
         self.text_search_url = FAISS_TEXT_SEARCH_URL
         self.late_fusion_url = FAISS_LATE_FUSION_URL
         self.delete_product_url = FAISS_DELETE_PRODUCT_URL
+        self.models_url = FAISS_MODELS_URL
+        self.clear_index_url = FAISS_CLEAR_INDEX_URL
 
     def search(
         self,
@@ -391,63 +395,63 @@ class FAISSRetrievalService:
     def delete_product(self, product_id: str) -> Dict[str, Any]:
         """
         Delete a product from the FAISS search index.
-        
+
         This sends a DELETE request to the FAISS service to remove all embeddings
         (textual and visual) associated with the given product ID.
-        
+
         Args:
             product_id: The unique ID of the product to delete
-        
+
         Returns:
             Result dict with status indicating success or failure
         """
         if not HAS_REQUESTS:
             logger.warning("[FAISS] requests library not installed")
             return {"status": "error", "error": "requests library not installed"}
-        
+
         try:
             logger.info(f"[FAISS] Deleting product {product_id} from index")
-            
+
             start_time = time.time()
-            
+
             # Build the URL with product_id
             url = f"{self.delete_product_url}/{product_id}"
-            
+
             response = requests.delete(
                 url,
                 timeout=30
             )
-            
+
             duration = (time.time() - start_time) * 1000
-            
+
             if response.status_code == 404:
                 logger.warning(f"[FAISS] Product {product_id} not found in FAISS index (took {duration:.2f}ms)")
                 return {"status": "success", "message": f"Product {product_id} not in FAISS index"}
-            
+
             if response.status_code not in [200, 204]:
                 try:
                     error_data = response.json()
                     error_msg = error_data.get('error', response.text)
                 except:
                     error_msg = response.text
-                
+
                 logger.error(f"[FAISS] Failed to delete product {product_id}: {response.status_code} - {error_msg}")
                 return {"status": "error", "error": f"FAISS Error ({response.status_code}): {error_msg}"}
-            
+
             # Try to parse response if present
             try:
                 result = response.json()
             except:
                 result = {}
-            
+
             logger.info(f"[FAISS] Successfully deleted product {product_id} from index (took {duration:.2f}ms)")
-            
+
             return {
                 "status": "success",
                 "message": f"Product {product_id} deleted from FAISS index",
                 "details": result
             }
-            
+
         except requests.exceptions.ConnectionError:
             logger.error(f"[FAISS] Service not available at {self.delete_product_url}")
             return {"status": "error", "error": "FAISS service not available"}
@@ -457,6 +461,185 @@ class FAISSRetrievalService:
         except Exception as e:
             logger.error(f"[FAISS] Error deleting product {product_id}: {e}")
             return {"status": "error", "error": str(e)}
+
+    def get_available_models(self) -> Dict[str, Any]:
+        """
+        Get the list of available textual and visual models from the FAISS service.
+
+        Fetches the supported embedding models that can be used for search operations.
+        This is useful for populating UI dropdowns or validating model selections.
+
+        Returns:
+            Dict with 'textual_models' and 'visual_models' lists, each containing
+            model objects with 'id' and 'name' fields.
+            Falls back to local config if FAISS service is unavailable.
+        """
+        if not HAS_REQUESTS:
+            logger.warning("[FAISS] requests library not installed, using local config")
+            return self._get_local_models()
+
+        try:
+            logger.info(f"[FAISS] Fetching available models from {self.base_url}")
+
+            response = requests.get(
+                self.models_url,
+                timeout=10
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"[FAISS] Successfully fetched available models")
+                return {
+                    "status": "success",
+                    "data": result.get('data', result),
+                    "source": "faiss_service"
+                }
+            else:
+                logger.warning(f"[FAISS] Models endpoint returned {response.status_code}, using local config")
+                return self._get_local_models()
+
+        except requests.exceptions.ConnectionError:
+            logger.warning(f"[FAISS] Service not available at {self.models_url}, using local config")
+            return self._get_local_models()
+        except requests.exceptions.Timeout:
+            logger.warning(f"[FAISS] Request timeout fetching models, using local config")
+            return self._get_local_models()
+        except Exception as e:
+            logger.error(f"[FAISS] Error fetching models: {e}, using local config")
+            return self._get_local_models()
+
+    def _get_local_models(self) -> Dict[str, Any]:
+        """
+        Get available models from local configuration as a fallback.
+
+        Returns:
+            Dict with textual and visual model lists from config/models.py
+        """
+        try:
+            from config.models import AVAILABLE_MODELS, DEFAULT_TEXTUAL_MODEL, DEFAULT_VISUAL_MODEL
+
+            textual_models = [
+                {"id": model_id, "name": display_name}
+                for model_id, display_name in AVAILABLE_MODELS.items()
+            ]
+
+            return {
+                "status": "success",
+                "data": {
+                    "textual_models": textual_models,
+                    "visual_models": textual_models,  # Same models can be used for both
+                    "defaults": {
+                        "textual": DEFAULT_TEXTUAL_MODEL,
+                        "visual": DEFAULT_VISUAL_MODEL
+                    }
+                },
+                "source": "local_config"
+            }
+        except Exception as e:
+            logger.error(f"[FAISS] Error loading local models: {e}")
+            return {
+                "status": "error",
+                "error": f"Failed to load models: {str(e)}"
+            }
+
+    def clear_index(self) -> Dict[str, Any]:
+        """
+        Clear all products from the FAISS search index.
+
+        This sends a request to the FAISS service to delete all embeddings
+        (textual and visual) from the index. Use this when you need to rebuild
+        the entire index from scratch (e.g., after model changes).
+
+        Returns:
+            Result dict with status and count of deleted items
+        """
+        if not HAS_REQUESTS:
+            logger.warning("[FAISS] requests library not installed")
+            return {"status": "error", "error": "requests library not installed"}
+
+        try:
+            logger.info(f"[FAISS] Clearing entire index")
+
+            start_time = time.time()
+
+            response = requests.delete(
+                self.clear_index_url,
+                timeout=60  # Longer timeout for bulk delete
+            )
+
+            duration = (time.time() - start_time) * 1000
+
+            if response.status_code == 404:
+                logger.warning(f"[FAISS] Clear index endpoint not found (took {duration:.2f}ms)")
+                return {
+                    "status": "success",
+                    "message": "Index clear endpoint not available - index may already be empty",
+                    "details": {"deleted_count": 0}
+                }
+
+            if response.status_code not in [200, 204]:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get('error', response.text)
+                except:
+                    error_msg = response.text
+
+                logger.error(f"[FAISS] Failed to clear index: {response.status_code} - {error_msg}")
+                return {"status": "error", "error": f"FAISS Error ({response.status_code}): {error_msg}"}
+
+            # Try to parse response
+            try:
+                result = response.json()
+            except:
+                result = {}
+
+            deleted_count = result.get('deleted_count', result.get('count', 'unknown'))
+            logger.info(f"[FAISS] Successfully cleared index (took {duration:.2f}ms)")
+
+            return {
+                "status": "success",
+                "message": "FAISS index cleared successfully",
+                "details": {
+                    "deleted_count": deleted_count,
+                    "duration_ms": duration
+                }
+            }
+
+        except requests.exceptions.ConnectionError:
+            logger.error(f"[FAISS] Service not available at {self.clear_index_url}")
+            return {"status": "error", "error": "FAISS service not available"}
+        except requests.exceptions.Timeout:
+            logger.error(f"[FAISS] Request timeout clearing index")
+            return {"status": "error", "error": "Request timeout"}
+        except Exception as e:
+            logger.error(f"[FAISS] Error clearing index: {e}")
+            return {"status": "error", "error": str(e)}
+
+    def add_test_product(self, product_id: str = "test-product-001") -> Dict[str, Any]:
+        """
+        Add a simple test product to verify FAISS service is working.
+
+        This adds a minimal product with just a name to test if the FAISS
+        service is responsive and ready to accept bulk imports.
+
+        Args:
+            product_id: Custom product ID for the test product
+
+        Returns:
+            Result dict with status and vector IDs
+        """
+        return self.add_product(
+            product_id=product_id,
+            name="Test Product - DO NOT USE",
+            description="This is a test product for smoke testing. Safe to delete.",
+            brand="Test Brand",
+            category="Test Category",
+            price=0.01,
+            images=[],  # No images for test product
+            textual_model_name="ViT-B/32",
+            visual_model_name="ViT-B/32",
+            fused_model_name="ViT-B/32"
+        )
 
 
 # Create a single shared instance for the whole app

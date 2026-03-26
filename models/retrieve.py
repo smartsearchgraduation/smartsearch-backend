@@ -31,10 +31,17 @@ class Retrieve(db.Model):
     # Raw text search tracking
     rawtext_used = db.Column(db.Boolean, nullable=True, default=False)
     new_search_id = db.Column(
-        db.BigInteger, 
+        db.BigInteger,
         db.ForeignKey('search_query.search_id', ondelete='SET NULL'),
         nullable=True
     )
+
+    # Model tracking - which models were used for this retrieval
+    textual_model_name = db.Column(db.String(100), nullable=True)
+    visual_model_name = db.Column(db.String(100), nullable=True)
+    
+    # Correction engine tracking - which spell correction engine was used
+    correction_engine = db.Column(db.String(50), nullable=True)
     
     # Relationships
     search_query = db.relationship(
@@ -54,10 +61,10 @@ class Retrieve(db.Model):
     def to_dict(self, include_product=False):
         """
         Convert retrieve object to dictionary.
-        
+
         Args:
             include_product (bool): Whether to include product details.
-            
+
         Returns:
             dict: Dictionary containing retrieval details.
         """
@@ -70,12 +77,14 @@ class Retrieve(db.Model):
             'is_relevant': self.is_relevant,
             'is_clicked': self.is_clicked,
             'embedding_id': self.embedding_id,
-
             'rawtext_used': self.rawtext_used,
-            'new_search_id': self.new_search_id
+            'new_search_id': self.new_search_id,
+            'textual_model_name': self.textual_model_name,
+            'visual_model_name': self.visual_model_name,
+            'correction_engine': self.correction_engine
         }
-        
+
         if include_product and self.product:
             result['product'] = self.product.to_dict(include_images=False)
-        
+
         return result

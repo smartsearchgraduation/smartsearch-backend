@@ -49,17 +49,18 @@ def create_app(config_class=None):
     
     # Hook up all our API route handlers
     from routes import (
-        search_bp, 
-        products_bp, 
-        feedback_bp, 
+        search_bp,
+        products_bp,
+        feedback_bp,
         health_bp,
         brands_bp,
         categories_bp,
         retrieval_bp,
         analytics_bp,
-        bulk_faiss_bp
+        bulk_faiss_bp,
+        correction_bp
     )
-    
+
     app.register_blueprint(search_bp)
     app.register_blueprint(products_bp)
     app.register_blueprint(feedback_bp)
@@ -69,6 +70,7 @@ def create_app(config_class=None):
     app.register_blueprint(retrieval_bp)
     app.register_blueprint(analytics_bp, url_prefix='/api/analytics')
     app.register_blueprint(bulk_faiss_bp)
+    app.register_blueprint(correction_bp)
     
     # Create database tables if they don't exist
     with app.app_context():
@@ -106,10 +108,15 @@ if __name__ == '__main__':
     print("   POST   /api/retrieval/add-product   (FAISS)")
     print("   POST   /api/retrieval/search/text   (FAISS Text)")
     print("   POST   /api/retrieval/search/late   (FAISS Late Fusion)")
+    print("   GET    /api/retrieval/models        (FAISS Available Models)")
+    print("   DELETE /api/retrieval/clear-index   (FAISS Clear Index)")
+    print("   POST   /api/retrieval/test-product  (FAISS Test Product)")
+    print("   GET    /api/correction/models       (Correction Models)")
     print("   POST   /api/analytics/search-duration (Client Metrics)")
     print("   GET    /api/bulk-faiss/             (Web UI - FAISS Bulk Import)")
     print("   GET    /api/bulk-faiss/stats        (Get Import Stats)")
     print("   POST   /api/bulk-faiss/add-all      (Add All Products to FAISS)")
+    print("   POST   /api/bulk-faiss/rebuild-with-test (Rebuild Index + Test)")
     print("   GET    /health")
     print("   GET    /uploads/products/<filename>   (serve images)")
     print(f" Database: {app.config['SQLALCHEMY_DATABASE_URI'].split('@')[1] if '@' in app.config['SQLALCHEMY_DATABASE_URI'] else 'N/A'}")

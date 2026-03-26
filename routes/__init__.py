@@ -10,6 +10,7 @@ from .categories import categories_bp
 from .retrieval import retrieval_bp
 from .analytics import analytics_bp
 from .bulk_faiss import bulk_faiss_bp
+from .correction import correction_bp
 
 __all__ = [
     'search_bp',
@@ -20,5 +21,6 @@ __all__ = [
     'categories_bp',
     'retrieval_bp',
     'analytics_bp',
-    'bulk_faiss_bp'
+    'bulk_faiss_bp',
+    'correction_bp'
 ]

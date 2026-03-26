@@ -18,6 +18,7 @@ Flask-based REST API serving as a middle layer between frontend UI and FAISS-bas
   - [Categories](#categories)
   - [FAISS Retrieval](#faiss-retrieval)
   - [FAISS Bulk Import](#faiss-bulk-import)
+  - [Correction Models](#correction-models)
   - [Feedback & Analytics](#feedback--analytics)
   - [Health](#health)
 - [Services](#-services)
@@ -590,6 +591,74 @@ Create a new category.
 
 ### FAISS Retrieval
 
+#### `GET /api/retrieval/models`
+
+Get list of available textual and visual embedding models from FAISS service.
+
+**Response (200):**
+```json
+{
+  "status": "success",
+  "data": {
+    "textual_models": [
+      {"id": "ViT-B/32", "name": "ViT-B/32 (Varsayılan - Hızlı)"},
+      {"id": "ViT-B/16", "name": "ViT-B/16 (Daha Doğru)"}
+    ],
+    "visual_models": [...],
+    "defaults": {
+      "textual": "BAAI/bge-large-en-v1.5",
+      "visual": "ViT-B/32"
+    }
+  },
+  "source": "faiss_service"
+}
+```
+
+---
+
+#### `DELETE /api/retrieval/clear-index`
+
+Clear all products from FAISS index. Use before rebuilding index with new models.
+
+**Response (200):**
+```json
+{
+  "status": "success",
+  "message": "FAISS index cleared successfully",
+  "details": {
+    "deleted_count": 1500,
+    "duration_ms": 234.56
+  }
+}
+```
+
+---
+
+#### `POST /api/retrieval/test-product`
+
+Add a test product to verify FAISS service is working.
+
+**Request (Optional):**
+```json
+{
+  "product_id": "test-001"
+}
+```
+
+**Response (200):**
+```json
+{
+  "status": "success",
+  "message": "Test product test-001 added successfully",
+  "details": {
+    "product_id": "test-001",
+    "textual_vector_id": 123
+  }
+}
+```
+
+---
+
 #### `POST /api/retrieval/search/text`
 
 Perform a text-only vector search directly through FAISS.
@@ -672,17 +741,141 @@ Get statistics on total products vs products successfully indexed in FAISS.
 
 Trigger a bulk synchronization of all products into the FAISS vector indices.
 
+**Features:**
+- ✅ Eager loading for database optimization (prevents N+1 queries)
+- ✅ Automatic wait after first product for FAISS initialization
+- ✅ Configurable delay between products
+
 **Request (Optional):**
 ```json
 {
   "textual_model_name": "ViT-B/32",
-  "visual_model_name": "ViT-B/32"
+  "visual_model_name": "ViT-B/32",
+  "wait_after_first": true,
+  "wait_duration_seconds": 60,
+  "delay_between_products_ms": 0
+}
+```
+
+**Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `textual_model_name` | string | `"BAAI/bge-large-en-v1.5"` | Text embedding model |
+| `visual_model_name` | string | `"ViT-B/32"` | Visual embedding model |
+| `wait_after_first` | boolean | `true` | Wait after first product for FAISS init |
+| `wait_duration_seconds` | integer | `60` | Wait duration in seconds |
+| `delay_between_products_ms` | integer | `0` | Additional delay between products (ms) |
+
+**Response (200):**
+```json
+{
+  "status": "success",
+  "message": "Bulk import completed: 1498 products added",
+  "details": {
+    "total_products": 1500,
+    "successful_count": 1498,
+    "failed_count": 2,
+    "total_time_ms": 125678.90,
+    "textual_model_name": "ViT-B/32",
+    "visual_model_name": "ViT-B/32",
+    "wait_applied": true,
+    "wait_duration_seconds": 60,
+    "delay_between_products_ms": 0,
+    "errors": [...]
+  }
+}
+```
+
+---
+
+#### `POST /api/bulk-faiss/rebuild-with-test`
+
+Complete rebuild workflow: Clear index → Test product → Bulk add all products.
+
+**Use Cases:**
+- Changing embedding models
+- Rebuilding corrupted index
+- Initial system setup
+
+**Request (Optional):**
+```json
+{
+  "textual_model_name": "ViT-L/14",
+  "visual_model_name": "ViT-L/14",
+  "test_product_id": "test-001",
+  "wait_after_first": true,
+  "wait_duration_seconds": 60,
+  "delay_between_products_ms": 0
+}
+```
+
+**Response (200):**
+```json
+{
+  "status": "success",
+  "workflow": "rebuild_with_test",
+  "message": "Rebuild completed in 135234.56ms",
+  "steps": [
+    {
+      "step": "clear_index",
+      "status": "success",
+      "details": {"deleted_count": 1500},
+      "duration_ms": 234.56
+    },
+    {
+      "step": "test_product",
+      "status": "success",
+      "details": {"product_id": "test-001"},
+      "attempts": 1,
+      "duration_ms": 1234.56
+    },
+    {
+      "step": "bulk_add",
+      "status": "success",
+      "details": {
+        "total_products": 1500,
+        "successful_count": 1500
+      },
+      "duration_ms": 133765.44
+    }
+  ],
+  "summary": {
+    "total_duration_ms": 135234.56,
+    "all_steps_successful": true
+  }
 }
 ```
 
 ---
 
 ### Feedback & Analytics
+
+#### `GET /api/correction/models`
+
+Get list of available text correction models (for spell-checking and typo correction).
+
+**Response (200):**
+```json
+{
+  "status": "success",
+  "data": {
+    "models": [
+      {
+        "id": "symspell_keyboard",
+        "name": "SymSpell (Hızlı - Keyboard Based)"
+      },
+      {
+        "id": "byt5",
+        "name": "ByT5 Finetuned (ML Model - Daha Doğru)"
+      }
+    ],
+    "default": "byt5"
+  },
+  "source": "correction_service"
+}
+```
+
+---
 
 #### `POST /api/feedback`
 
