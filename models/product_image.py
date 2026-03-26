@@ -1,7 +1,7 @@
 """
 ProductImage model.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from . import db
 
 
@@ -17,7 +17,7 @@ class ProductImage(db.Model):
         nullable=False
     )
     url = db.Column(db.Text, nullable=False)
-    uploaded_at = db.Column(db.DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    uploaded_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     
     # Relationships
     product = db.relationship('Product', back_populates='images')

@@ -5,7 +5,7 @@ import unittest
 import json
 from app import create_app
 from models import db, SearchTime, SearchQuery
-from datetime import datetime
+from datetime import datetime, timezone
 
 class TestAnalyticsZeroValues(unittest.TestCase):
     def setUp(self):
@@ -16,7 +16,7 @@ class TestAnalyticsZeroValues(unittest.TestCase):
         self.ctx.push()
         
         # Create dummy data
-        self.search = SearchQuery(raw_text="zero_test", timestamp=datetime.utcnow())
+        self.search = SearchQuery(raw_text="zero_test", timestamp=datetime.now(timezone.utc))
         db.session.add(self.search)
         db.session.commit()
         

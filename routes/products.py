@@ -9,7 +9,7 @@ import uuid
 import base64
 import mimetypes
 from flask import Blueprint, request, jsonify, current_app, send_file
-from datetime import datetime
+from datetime import datetime, timezone
 from werkzeug.utils import secure_filename
 
 from models import db, Product, Brand, Category, ProductImage
@@ -613,7 +613,7 @@ def update_product(product_id):
                 db.session.add(image)
                 saved_image_urls.append(url)
         
-        product.updated_at = datetime.utcnow()
+        product.updated_at = datetime.now(timezone.utc)
         db.session.commit()
         
         # Update FAISS index - delete and re-add to ensure all changes are reflected

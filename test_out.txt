@@ -1,0 +1,54 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.0, pytest-9.0.2, pluggy-1.6.0
+rootdir: C:\Users\Semih\Documents\grad\smartsearch-backend
+collected 10 items
+
+tests\test_search_service.py ....F.....                                  [100%]
+
+================================== FAILURES ===================================
+_______________ TestSearchService.test_get_search_by_id_success _______________
+
+self = <test_search_service.TestSearchService object at 0x0000024392A24D70>
+MockSearchQuery = <MagicMock name='SearchQuery' id='2489246962256'>
+mock_db = <MagicMock name='db' id='2489246736240'>
+
+    @patch('services.search_service.SearchQuery')
+    def test_get_search_by_id_success(self, MockSearchQuery, mock_db):
+        """Test retrieving full search results by ID."""
+        mock_sq = MagicMock()
+        mock_sq.raw_text = "test raw"
+        mock_sq.corrected_text = "test corrected"
+        MockSearchQuery.query.get.return_value = mock_sq
+    
+        # Mock db.session.execute row result
+        mock_row = [
+            "test corrected", # corrected_text
+            1,                # rank
+            0.95,             # weight/score
+            201,              # product_id
+            "Test Product",   # name
+            99.99,            # price
+            "Test Brand",     # brand_name
+            10,               # brand_id
+            ["/uploads/products/test.jpg"], # images
+            True              # is_relevant
+        ]
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [mock_row]
+        mock_db.session.execute.return_value = mock_result
+    
+        from flask import Flask
+        app = Flask(__name__)
+        app.config['UPLOAD_FOLDER'] = 'fake_upload_folder'
+    
+        with app.app_context(), \
+             patch('os.path.exists', return_value=True), \
+>            patch('builtins.open', unittest.mock.mock_open(read_data=b'fake_image_data')), \
+                                    ^^^^^^^^
+             patch('mimetypes.guess_type', return_value=('image/jpeg', None)):
+E            NameError: name 'unittest' is not defined. Did you forget to import 'unittest'
+
+tests\test_search_service.py:189: NameError
+=========================== short test summary info ===========================
+FAILED tests/test_search_service.py::TestSearchService::test_get_search_by_id_success
+========================= 1 failed, 9 passed in 0.45s =========================

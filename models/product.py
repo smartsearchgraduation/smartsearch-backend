@@ -1,7 +1,7 @@
 """
 Product model.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from . import db
 
 
@@ -20,8 +20,8 @@ class Product(db.Model):
     description = db.Column(db.Text, nullable=True)
     price = db.Column(db.Numeric(12, 2), nullable=False)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
-    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # Relationships
     brand = db.relationship('Brand', back_populates='products')

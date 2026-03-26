@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 import json
 from app import create_app
 from models import db, SearchTime, SearchQuery
-from datetime import datetime
+from datetime import datetime, timezone
 
 def demo():
     app = create_app()
@@ -13,7 +13,7 @@ def demo():
     
     with app.app_context():
         # Create dummy data
-        search = SearchQuery(raw_text="demo_search", timestamp=datetime.utcnow())
+        search = SearchQuery(raw_text="demo_search", timestamp=datetime.now(timezone.utc))
         db.session.add(search)
         db.session.commit()
         

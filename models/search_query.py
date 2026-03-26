@@ -1,7 +1,7 @@
 """
 SearchQuery model for logging search queries.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from . import db
 
 
@@ -15,7 +15,7 @@ class SearchQuery(db.Model):
     corrected_text = db.Column(db.Text, nullable=True)
     type = db.Column(db.String(50), nullable=True)  # 'text', 'voice', 'image'
     time_to_retrieve = db.Column(db.Integer, nullable=True)  # ms
-    timestamp = db.Column(db.DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     
     # Relationships
     retrieves = db.relationship(
