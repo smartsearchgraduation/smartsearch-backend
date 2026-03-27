@@ -3,9 +3,11 @@ API routes for direct FAISS operations.
 These endpoints let you add products to the search index and perform
 various types of searches (text-only, late fusion with images, etc.).
 """
+import os
 import logging
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app, render_template_string
 from services.faiss_retrieval_service import faiss_service
+from config.models import get_selected_models, save_selected_models, is_valid_model, AVAILABLE_MODELS
 
 logger = logging.getLogger(__name__)
 
@@ -90,22 +92,21 @@ def search_late_fusion():
 @retrieval_bp.route('/add-product', methods=['POST'])
 def add_product():
     """
-    Add a product directly to the FAISS search index.
-    
-    Use this to make a product searchable without going through the main
-    products API. You'll need to provide the product ID, name, and image paths.
-    The product will be indexed for both text and visual search.
+    Add a product to the retrieval system for the specified model only.
+
+    If the product already has embeddings for the active model, the request is 
+    skipped and a success response with "skipped": true is returned.
     """
     try:
         data = request.get_json()
-        
+
         # Validate request body
         if not data:
             return jsonify({
                 "status": "error",
                 "error": "Request body is required"
             }), 400
-        
+
         # Extract required fields
         product_id = data.get('id')
         name = data.get('name')
@@ -117,20 +118,20 @@ def add_product():
         textual_model_name = data.get('textual_model_name', 'ViT-B/32')
         visual_model_name = data.get('visual_model_name', 'ViT-B/32')
         fused_model_name = data.get('fused_model_name', 'ViT-B/32')
-        
+
         # Validate required fields
         if not product_id:
             return jsonify({
                 "status": "error",
                 "error": "Missing required field: id"
             }), 400
-        
+
         if not name:
             return jsonify({
                 "status": "error",
                 "error": "Missing required field: name"
             }), 400
-        
+
         # Validate price
         try:
             price = float(price)
@@ -139,9 +140,9 @@ def add_product():
                 "status": "error",
                 "error": "Invalid price value"
             }), 400
-        
-        logger.info(f"[Retrieval] Adding product {product_id} to FAISS")
-        
+
+        logger.info(f"[Retrieval] Adding product {product_id} to FAISS for model {textual_model_name}/{visual_model_name}")
+
         # Call service to add product
         result = faiss_service.add_product(
             product_id=product_id,
@@ -155,7 +156,7 @@ def add_product():
             visual_model_name=visual_model_name,
             fused_model_name=fused_model_name
         )
-        
+
         # Check result status
         if result.get('status') == 'error':
             logger.error(f"[Retrieval] Failed to add product {product_id}: {result.get('error')}")
@@ -172,6 +173,131 @@ def add_product():
         }), 500
 
 
+@retrieval_bp.route('/update-product/<product_id>', methods=['PUT'])
+def update_product(product_id):
+    """
+    Update a product in the retrieval system.
+
+    Removes old embeddings from ALL model folders, then re-indexes with the active model.
+    """
+    try:
+        data = request.get_json()
+
+        # Validate request body
+        if not data:
+            return jsonify({
+                "status": "error",
+                "error": "Request body is required"
+            }), 400
+
+        # Extract fields
+        name = data.get('name', '')
+        description = data.get('description', '')
+        brand = data.get('brand', '')
+        category = data.get('category', '')
+        price = data.get('price', 0.0)
+        images = data.get('images', [])
+        textual_model_name = data.get('textual_model_name', 'ViT-B/32')
+        visual_model_name = data.get('visual_model_name', 'ViT-B/32')
+        fused_model_name = data.get('fused_model_name', 'ViT-B/32')
+
+        # Validate price
+        try:
+            price = float(price)
+        except (ValueError, TypeError):
+            return jsonify({
+                "status": "error",
+                "error": "Invalid price value"
+            }), 400
+
+        logger.info(f"[Retrieval] Updating product {product_id} in FAISS")
+
+        # Call service to update product
+        result = faiss_service.update_product(
+            product_id=product_id,
+            name=name,
+            description=description,
+            brand=brand,
+            category=category,
+            price=price,
+            images=images,
+            textual_model_name=textual_model_name,
+            visual_model_name=visual_model_name,
+            fused_model_name=fused_model_name
+        )
+
+        # Check result status
+        if result.get('status') == 'error':
+            logger.error(f"[Retrieval] Failed to update product {product_id}: {result.get('error')}")
+            return jsonify(result), 500
+
+        logger.info(f"[Retrieval] Successfully updated product {product_id} in FAISS")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"[Retrieval] Unexpected error updating product {product_id}: {e}")
+        return jsonify({
+            "status": "error",
+            "error": "An unexpected error occurred"
+        }), 500
+
+
+@retrieval_bp.route('/delete-product/<product_id>', methods=['DELETE'])
+def delete_product(product_id):
+    """
+    Delete a product from the retrieval system.
+
+    Removes all embeddings for a product from ALL model folders.
+    """
+    try:
+        logger.info(f"[Retrieval] Deleting product {product_id} from FAISS")
+
+        # Call service to delete product
+        result = faiss_service.delete_product(product_id)
+
+        # Check result status
+        if result.get('status') == 'error':
+            logger.error(f"[Retrieval] Failed to delete product {product_id}: {result.get('error')}")
+            return jsonify(result), 500
+
+        logger.info(f"[Retrieval] Successfully deleted product {product_id} from FAISS")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"[Retrieval] Unexpected error deleting product {product_id}: {e}")
+        return jsonify({
+            "status": "error",
+            "error": "An unexpected error occurred"
+        }), 500
+
+
+@retrieval_bp.route('/index-stats', methods=['GET'])
+def get_index_stats():
+    """
+    Get index statistics for all models.
+
+    Returns per-model index statistics showing how many textual, visual, and fused embeddings exist in each model folder.
+    """
+    try:
+        logger.info("[Retrieval] Fetching index statistics")
+
+        result = faiss_service.get_index_stats()
+
+        if result.get('status') == 'error':
+            logger.error(f"[Retrieval] Failed to get index stats: {result.get('error')}")
+            return jsonify(result), 500
+
+        logger.info("[Retrieval] Successfully fetched index statistics")
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"[Retrieval] Unexpected error fetching index stats: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
+
+
 @retrieval_bp.route('/models', methods=['GET'])
 def get_available_models():
     """
@@ -182,8 +308,8 @@ def get_available_models():
     validating model selections.
 
     The response includes:
-    - textual_models: Models available for text embedding
-    - visual_models: Models available for image embedding
+    - textual_models: Models available for text embedding (array of {name, dimension})
+    - visual_models: Models available for image embedding (array of {name, dimension})
     - defaults: Default model selections for both text and visual
     - source: Whether the data came from 'faiss_service' or 'local_config'
     """
@@ -201,6 +327,46 @@ def get_available_models():
 
     except Exception as e:
         logger.error(f"[Retrieval] Unexpected error fetching models: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
+
+
+@retrieval_bp.route('/stats', methods=['GET'])
+def get_system_stats():
+    """
+    Get comprehensive system statistics.
+    """
+    try:
+        logger.info("[Retrieval] Fetching system statistics")
+
+        # Get index statistics
+        stats_result = faiss_service.get_index_stats()
+        
+        # Get available models
+        models_result = faiss_service.get_available_models()
+        
+        # Get selected models
+        from config.models import get_selected_models
+        selected_models = get_selected_models()
+
+        # Combine all stats
+        system_stats = {
+            "status": "success",
+            "data": {
+                "index_stats": stats_result.get('indices', stats_result.get('data', {})),
+                "available_models": models_result.get('data', {}),
+                "selected_models": selected_models,
+                "service_status": "healthy"
+            }
+        }
+
+        logger.info("[Retrieval] Successfully fetched system statistics")
+        return jsonify(system_stats), 200
+
+    except Exception as e:
+        logger.error(f"[Retrieval] Unexpected error fetching stats: {e}")
         return jsonify({
             "status": "error",
             "error": str(e)
@@ -272,6 +438,252 @@ def add_test_product():
 
     except Exception as e:
         logger.error(f"[Retrieval] Unexpected error adding test product: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
+
+
+@retrieval_bp.route('/selected-models', methods=['GET'])
+def get_selected_models_endpoint():
+    """
+    Get currently selected models (for admin panel).
+    
+    Returns the models that will be used for bulk import operations
+    if no models are specified in the request.
+    """
+    try:
+        models = get_selected_models()
+        
+        return jsonify({
+            "status": "success",
+            "data": models
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[Retrieval] Error getting selected models: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
+
+
+@retrieval_bp.route('/selected-models', methods=['POST'])
+def save_selected_models_endpoint():
+    """
+    Save selected models (from admin panel).
+    
+    These models will be used for subsequent bulk import operations
+    if no models are specified in the request.
+    
+    Request body:
+        - textual_model: Textual embedding model name
+        - visual_model: Visual embedding model name
+    """
+    try:
+        data = request.get_json() or {}
+        
+        textual_model = data.get('textual_model')
+        visual_model = data.get('visual_model')
+        
+        # Validate required fields
+        if not textual_model or not visual_model:
+            return jsonify({
+                "status": "error",
+                "error": "Both textual_model and visual_model are required"
+            }), 400
+        
+        # Validate model names
+        if not is_valid_model(textual_model):
+            return jsonify({
+                "status": "error",
+                "error": f"Invalid textual model: {textual_model}"
+            }), 400
+        
+        if not is_valid_model(visual_model):
+            return jsonify({
+                "status": "error",
+                "error": f"Invalid visual model: {visual_model}"
+            }), 400
+        
+        # Save to config
+        save_selected_models(textual_model, visual_model)
+        
+        logger.info(f"[Retrieval] Models saved - Textual: {textual_model}, Visual: {visual_model}")
+        
+        return jsonify({
+            "status": "success",
+            "message": "Models saved successfully",
+            "data": {
+                "textual_model": textual_model,
+                "visual_model": visual_model
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[Retrieval] Error saving selected models: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
+
+
+@retrieval_bp.route('/selected-models/save-and-rebuild', methods=['POST'])
+def save_and_rebuild():
+    """
+    Save selected models and rebuild FAISS index.
+    
+    This endpoint is called from the admin panel when user clicks "Save" button.
+    It performs the following workflow:
+    1. Saves the selected textual and visual models
+    2. Clears the FAISS index via DELETE /api/retrieval/clear-index
+    3. Waits 60 seconds for FAISS initialization
+    4. Adds all products from database one by one
+    5. Saves the models to retrieval config
+    
+    Request body:
+        - textual_model: Textual embedding model name
+        - visual_model: Visual embedding model name
+        - wait_duration_seconds: How long to wait after clear (default: 60)
+    """
+    import time
+    from models import db
+    from models.product import Product
+    from models.product_image import ProductImage
+    from sqlalchemy.orm import joinedload
+    
+    start_time = time.time()
+    
+    try:
+        data = request.get_json() or {}
+        
+        textual_model = data.get('textual_model')
+        visual_model = data.get('visual_model')
+        wait_duration_seconds = data.get('wait_duration_seconds', 60)
+        
+        # Validate required fields
+        if not textual_model or not visual_model:
+            return jsonify({
+                "status": "error",
+                "error": "Both textual_model and visual_model are required"
+            }), 400
+        
+        # Validate model names
+        if not is_valid_model(textual_model):
+            return jsonify({
+                "status": "error",
+                "error": f"Invalid textual model: {textual_model}. Available: {list(AVAILABLE_MODELS.keys())}"
+            }), 400
+        
+        if not is_valid_model(visual_model):
+            return jsonify({
+                "status": "error",
+                "error": f"Invalid visual model: {visual_model}. Available: {list(AVAILABLE_MODELS.keys())}"
+            }), 400
+        
+        # Step 1: Save models to config
+        logger.info(f"[Rebuild] Step 1/3: Saving models - Textual: {textual_model}, Visual: {visual_model}")
+        save_selected_models(textual_model, visual_model)
+        
+        # Step 2: Clear FAISS index
+        logger.info(f"[Rebuild] Step 2/3: Clearing FAISS index")
+        clear_result = faiss_service.clear_index()
+        
+        if clear_result.get('status') == 'error':
+            logger.warning(f"[Rebuild] Clear index returned error: {clear_result.get('error')}, continuing anyway")
+        
+        # Step 3: Wait for FAISS initialization
+        logger.info(f"[Rebuild] Step 3/3: Waiting {wait_duration_seconds}s for FAISS initialization...")
+        time.sleep(wait_duration_seconds)
+        logger.info(f"[Rebuild] ✅ Wait completed ({wait_duration_seconds}s), starting product import")
+        
+        # Step 4: Add all products from database
+        products = (Product.query
+            .filter_by(is_active=True)
+            .options(
+                joinedload(Product.brand),
+                joinedload(Product.categories),
+                joinedload(Product.images)
+            )
+            .all())
+        
+        if not products:
+            return jsonify({
+                "status": "error",
+                "error": "No products found in database"
+            }), 404
+        
+        total_products = len(products)
+        successful_count = 0
+        failed_count = 0
+        errors = []
+        
+        upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/products')
+        
+        for idx, product in enumerate(products):
+            try:
+                brand_name = product.brand.name if product.brand else ''
+                categories = list(product.categories)
+                category_name = categories[0].name if categories else ''
+                
+                image_paths = []
+                for img in product.images:
+                    image_path = img.url if os.path.isabs(img.url) else os.path.join(upload_folder, os.path.basename(img.url))
+                    if os.path.exists(image_path):
+                        image_paths.append(image_path)
+                
+                result = faiss_service.add_product(
+                    product_id=str(product.product_id),
+                    name=product.name,
+                    description=product.description or '',
+                    brand=brand_name,
+                    category=category_name,
+                    price=float(product.price) if product.price else 0.0,
+                    images=image_paths,
+                    textual_model_name=textual_model,
+                    visual_model_name=visual_model
+                )
+                
+                if result.get('status') == 'success':
+                    successful_count += 1
+                    logger.info(f"[Rebuild] ✅ Product {product.product_id} added")
+                else:
+                    failed_count += 1
+                    errors.append({
+                        'product_id': product.product_id,
+                        'error': result.get('error', 'Unknown error')
+                    })
+                    logger.error(f"[Rebuild] ❌ Product {product.product_id} failed: {result.get('error')}")
+                    
+            except Exception as e:
+                failed_count += 1
+                errors.append({
+                    'product_id': product.product_id,
+                    'error': str(e)
+                })
+                logger.error(f"[Rebuild] ❌ Product {product.product_id} exception: {e}")
+        
+        total_duration = (time.time() - start_time) * 1000
+        
+        logger.info(f"[Rebuild] Completed: {successful_count}/{total_products} products in {total_duration:.2f}ms")
+        
+        return jsonify({
+            "status": "success",
+            "message": f"Models saved and FAISS index rebuilt successfully",
+            "data": {
+                "textual_model": textual_model,
+                "visual_model": visual_model,
+                "total_products": total_products,
+                "successful_count": successful_count,
+                "failed_count": failed_count,
+                "total_duration_ms": total_duration,
+                "wait_duration_seconds": wait_duration_seconds
+            },
+            "errors": errors[:10]  # Limit to first 10 errors
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[Rebuild] Failed: {e}")
         return jsonify({
             "status": "error",
             "error": str(e)

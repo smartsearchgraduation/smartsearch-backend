@@ -1,0 +1,136 @@
+{
+  "/api/retrieval/add-product": {
+    "POST": {
+      "request": {
+        "id": "product_001",
+        "name": "Premium Leather Handbag",
+        "description": "Elegant handcrafted leather bag",
+        "brand": "LuxuryBrand",
+        "category": "Accessories",
+        "price": 299.99,
+        "images": ["C:/absolute/path/to/image1.jpg", "C:/absolute/path/to/image2.jpg"],
+        "textual_model_name": "ViT-B/32",
+        "visual_model_name": "ViT-B/32"
+      },
+      "response_success_new": {
+        "status": "success",
+        "message": "Product product_001 added successfully",
+        "details": {
+          "product_id": "product_001",
+          "textual_vector_id": 0,
+          "visual_vector_ids": [0, 1],
+          "images_processed": 2
+        }
+      },
+      "response_success_skipped": {
+        "status": "success",
+        "message": "Product product_001 already has embeddings for this model, skipping",
+        "details": {
+          "product_id": "product_001",
+          "skipped": true
+        }
+      }
+    }
+  },
+  "/api/retrieval/update-product/{product_id}": {
+    "PUT": {
+      "request": {
+        "name": "Updated Leather Handbag",
+        "description": "Premium handmade leather bag with gold buckle",
+        "brand": "LuxuryBrand",
+        "category": "Accessories",
+        "price": 349.99,
+        "images": ["C:/absolute/path/to/new_image.jpg"],
+        "textual_model_name": "BAAI/bge-large-en-v1.5",
+        "visual_model_name": "ViT-B/32"
+      },
+      "response": {
+        "status": "success",
+        "message": "Product product_001 updated successfully",
+        "details": {
+          "product_id": "product_001",
+          "removed_counts": {
+            "bge-large-en-v1.5_1024_embeddings": { "textual": 1, "visual": 0, "fused": 0 },
+            "ViT-B-32_512_embeddings": { "textual": 0, "visual": 2, "fused": 0 }
+          },
+          "textual_vector_id": 2,
+          "visual_vector_ids": [3],
+          "images_processed": 1
+        }
+      }
+    }
+  },
+  "/api/retrieval/delete-product/{product_id}": {
+    "DELETE": {
+      "response": {
+        "status": "success",
+        "message": "Product product_001 deleted successfully",
+        "details": {
+          "product_id": "product_001",
+          "removed_counts": {
+            "bge-large-en-v1.5_1024_embeddings": { "textual": 1, "visual": 0, "fused": 0 },
+            "ViT-B-32_512_embeddings": { "textual": 0, "visual": 2, "fused": 0 }
+          },
+          "total_removed": 3
+        }
+      }
+    }
+  },
+  "/api/retrieval/index-stats": {
+    "GET": {
+      "response": {
+        "status": "success",
+        "indices": {
+          "bge-large-en-v1.5_1024_embeddings": {
+            "textual": 100,
+            "visual": 0,
+            "fused": 0
+          },
+          "ViT-B-32_512_embeddings": {
+            "textual": 0,
+            "visual": 250,
+            "fused": 0
+          }
+        }
+      }
+    }
+  },
+  "/api/retrieval/models": {
+    "GET": {
+      "response": {
+        "status": "success",
+        "data": {
+          "textual_models": [
+            { "name": "ViT-B/32", "dimension": 512 },
+            { "name": "BAAI/bge-large-en-v1.5", "dimension": 1024 },
+            { "name": "Qwen/Qwen3-Embedding-8B", "dimension": 4096 }
+          ],
+          "visual_models": [
+            { "name": "ViT-B/32", "dimension": 512 }
+          ],
+          "defaults": {
+            "textual": "BAAI/bge-large-en-v1.5",
+            "visual": "ViT-B/32"
+          }
+        }
+      }
+    }
+  },
+  "/api/retrieval/stats": {
+    "GET": {
+      "response": {
+        "status": "success",
+        "data": {
+          "index_stats": {},
+          "available_models": {},
+          "selected_models": {
+            "textual_model": "BAAI/bge-large-en-v1.5",
+            "visual_model": "ViT-B/32",
+            "last_updated": "2026-03-26T10:00:00Z"
+          },
+          "service_status": "healthy"
+        }
+      }
+    }
+  }
+}

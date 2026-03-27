@@ -9,7 +9,7 @@ from flask import Blueprint, request, jsonify, render_template_string, current_a
 from models import db
 from models.product import Product
 from services.faiss_retrieval_service import faiss_service
-from config.models import AVAILABLE_MODELS, DEFAULT_TEXTUAL_MODEL, DEFAULT_VISUAL_MODEL, is_valid_model
+from config.models import AVAILABLE_MODELS, DEFAULT_TEXTUAL_MODEL, DEFAULT_VISUAL_MODEL, is_valid_model, get_selected_models
 
 logger = logging.getLogger(__name__)
 
@@ -541,10 +541,18 @@ def bulk_import_page():
 def get_models():
     """
     Get available models for FAISS embeddings.
-    Returns the model mapping from config/models.py
+    Returns the model mapping from config/models.py with name and dimension.
+    Format matches FAISS service response: {name, dimension}
     """
+    from config.models import get_model_info
+    
+    models = [
+        get_model_info(model_id)
+        for model_id in AVAILABLE_MODELS.keys()
+    ]
+    
     return jsonify({
-        'models': AVAILABLE_MODELS,
+        'models': models,
         'defaults': {
             'textual': DEFAULT_TEXTUAL_MODEL,
             'visual': DEFAULT_VISUAL_MODEL
@@ -613,8 +621,26 @@ def add_all_products():
 
     # Get configuration from request body
     data = request.get_json() or {}
-    textual_model_name = data.get('textual_model_name', DEFAULT_TEXTUAL_MODEL)
-    visual_model_name = data.get('visual_model_name', DEFAULT_VISUAL_MODEL)
+    
+    # Request'te model varsa onu kullan
+    textual_model_name = data.get('textual_model_name')
+    visual_model_name = data.get('visual_model_name')
+    
+    # Yoksa FAISS service'ten çek
+    if not textual_model_name or not visual_model_name:
+        faiss_models = faiss_service.get_available_models()
+        if faiss_models.get('status') == 'success':
+            faiss_data = faiss_models.get('data', {})
+            defaults = faiss_data.get('defaults', {})
+            textual_model_name = textual_model_name or defaults.get('textual')
+            visual_model_name = visual_model_name or defaults.get('visual')
+        
+        # Hala yoksa default kullan
+        if not textual_model_name:
+            textual_model_name = DEFAULT_TEXTUAL_MODEL
+        if not visual_model_name:
+            visual_model_name = DEFAULT_VISUAL_MODEL
+    
     wait_duration_seconds = data.get('wait_duration_seconds', 60)
     delay_between_products_ms = data.get('delay_between_products_ms', 0)
 
@@ -836,11 +862,28 @@ def rebuild_with_test():
     try:
         # Get configuration from request body
         data = request.get_json() or {}
-        textual_model_name = data.get('textual_model_name', DEFAULT_TEXTUAL_MODEL)
-        visual_model_name = data.get('visual_model_name', DEFAULT_VISUAL_MODEL)
+        
+        # Request'te model varsa onu kullan
+        textual_model_name = data.get('textual_model_name')
+        visual_model_name = data.get('visual_model_name')
+        
+        # Yoksa FAISS service'ten çek
+        if not textual_model_name or not visual_model_name:
+            faiss_models = faiss_service.get_available_models()
+            if faiss_models.get('status') == 'success':
+                faiss_data = faiss_models.get('data', {})
+                defaults = faiss_data.get('defaults', {})
+                textual_model_name = textual_model_name or defaults.get('textual')
+                visual_model_name = visual_model_name or defaults.get('visual')
+            
+            # Hala yoksa default kullan
+            if not textual_model_name:
+                textual_model_name = DEFAULT_TEXTUAL_MODEL
+            if not visual_model_name:
+                visual_model_name = DEFAULT_VISUAL_MODEL
+        
         test_product_id = data.get('test_product_id', 'test-product-001')
-        wait_after_first = data.get('wait_after_first', True)
-        wait_duration_seconds = data.get('wait_duration_seconds', 60)  # Minimum 1 dakika
+        wait_duration_seconds = data.get('wait_duration_seconds', 60)
         delay_between_products_ms = data.get('delay_between_products_ms', 0)
 
         # Validate model names

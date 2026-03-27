@@ -1,0 +1,5 @@
+{
+  "textual_model": "BAAI/bge-large-en-v1.5",
+  "visual_model": "ViT-B/32",
+  "last_updated": null
+}

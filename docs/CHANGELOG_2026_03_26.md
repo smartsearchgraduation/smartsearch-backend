@@ -217,11 +217,13 @@ products = (Product.query
 
 | Endpoint | Metod | Açıklama | Değişiklik |
 |----------|-------|----------|------------|
-| `/api/bulk-faiss/add-all` | POST | Toplu ürün ekleme | Clear + Retry + Wait logic eklendi |
-| `/api/bulk-faiss/rebuild-with-test` | POST | Tam rebuild workflow | Wait logic güncellendi |
+| `/api/bulk-faiss/add-all` | POST | Toplu ürün ekleme | Clear + Retry + Wait logic + Saved models |
+| `/api/bulk-faiss/rebuild-with-test` | POST | Tam rebuild workflow | Wait logic + Saved models |
 | `/api/retrieval/clear-index` | DELETE | FAISS index temizleme | Yeni |
 | `/api/retrieval/test-product` | POST | Test ürünü ekleme | Yeni |
 | `/api/retrieval/models` | GET | FAISS model listesi | Yeni |
+| `/api/retrieval/selected-models` | GET | Kaydedilen modelleri getir | Yeni |
+| `/api/retrieval/selected-models` | POST | Model seçimi kaydet | Yeni |
 | `/api/correction/models` | GET | Correction model listesi | Yeni |
 
 ---
@@ -236,13 +238,17 @@ products = (Product.query
 - `services/faiss_retrieval_service.py` - clear_index(), add_test_product(), get_available_models()
 
 ### Route Dosyaları
-- `routes/bulk_faiss.py` - Clear + Retry + Wait logic
-- `routes/retrieval.py` - Yeni endpoint'ler
+- `routes/bulk_faiss.py` - Clear + Retry + Wait logic + Saved models
+- `routes/retrieval.py` - Yeni endpoint'ler + Selected models
 - `routes/correction.py` (YENİ) - Correction models endpoint
 
 ### Migration Script'leri
 - `scripts/migrate_add_model_columns_to_retrieve.py` (YENİ)
 - `scripts/migrate_add_correction_engine_to_retrieve.py` (YENİ)
+
+### Config Dosyaları
+- `config/models.py` - get_selected_models(), save_selected_models()
+- `config/selected_models.json` (YENİ) - Model seçimi saklama
 
 ### Dokümantasyon
 - `docs/FAISS_BULK_IMPORT_WORKFLOW.md` (YENİ)
@@ -279,6 +285,186 @@ curl -X POST http://localhost:5000/api/bulk-faiss/add-all \
 **Delete işlemi:** FAISS service (port 5002) tarafından halledilir, backend sadece endpoint'i çağırır.
 
 **Kullanıcı hiçbir şey silmez, sadece endpoint'i çağırır!**
+
+---
+
+## 🎯 Model Seçimi (Admin Panel İçin)
+
+### FAISS Service Integration
+
+Model seçimi artık FAISS service (port 5002) tarafından yönetiliyor. Admin panel backend'e POST atar, backend de FAISS service'e iletir.
+
+### Workflow
+
+```
+Admin Panel → Backend (5000) → FAISS Service (5002)
+```
+
+### Yeni Endpoint'ler
+
+**GET /api/retrieval/selected-models** - FAISS'ten modelleri çek
+
+**Request:**
+```bash
+curl http://localhost:5000/api/retrieval/selected-models
+```
+
+**Response (FAISS'ten):**
+```json
+{
+  "status": "success",
+  "data": {
+    "textual_models": [
+      {"id": "ViT-B/32", "name": "ViT-B/32 (Varsayılan - Hızlı)"},
+      {"id": "ViT-L/14", "name": "ViT-L/14 (Büyük Model)"}
+    ],
+    "visual_models": [...],
+    "defaults": {
+      "textual": "ViT-L/14",
+      "visual": "ViT-L/14"
+    }
+  },
+  "source": "faiss_service"
+}
+```
+
+**Response (Fallback - Local):**
+```json
+{
+  "status": "success",
+  "data": {
+    "defaults": {
+      "textual": "BAAI/bge-large-en-v1.5",
+      "visual": "ViT-B/32"
+    }
+  },
+  "source": "local_config"
+}
+```
+
+---
+
+**POST /api/retrieval/selected-models** - Model seçimi kaydet (FAISS'e POST)
+
+**Request:**
+```bash
+curl -X POST http://localhost:5000/api/retrieval/selected-models \
+  -H "Content-Type: application/json" \
+  -d '{
+    "textual_model": "ViT-L/14",
+    "visual_model": "ViT-L/14"
+  }'
+```
+
+**Response (Başarılı):**
+```json
+{
+  "status": "success",
+  "message": "Models saved successfully",
+  "data": {
+    "textual_model": "ViT-L/14",
+    "visual_model": "ViT-L/14"
+  },
+  "source": "faiss_service"
+}
+```
+
+**Response (Hata):**
+```json
+{
+  "status": "error",
+  "error": "FAISS Error (500): Invalid model combination"
+}
+```
+
+---
+
+### Otomatik Model Kullanımı
+
+**Bulk Import (FAISS'ten çeker):**
+```bash
+# Model gönderilmezse FAISS service'ten çekilir
+curl -X POST http://localhost:5000/api/bulk-faiss/add-all \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "details": {
+    "textual_model_name": "ViT-L/14",  // FAISS'ten gelen
+    "visual_model_name": "ViT-L/14"    // FAISS'ten gelen
+  }
+}
+```
+
+---
+
+**Override (Request'te Model Gönder):**
+```bash
+# Request'te model gönderilirse o kullanılır
+curl -X POST http://localhost:5000/api/bulk-faiss/add-all \
+  -H "Content-Type: application/json" \
+  -d '{
+    "textual_model_name": "ViT-B/16",
+    "visual_model_name": "ViT-B/16"
+  }'
+```
+
+---
+
+### Admin Panel Template
+
+**Model Seçimi Kaydetme:**
+```javascript
+// Admin panel → Backend → FAISS
+async function saveModels(textualModel, visualModel) {
+  const response = await fetch('/api/retrieval/selected-models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      textual_model: textualModel,
+      visual_model: visualModel
+    })
+  });
+  
+  const result = await response.json();
+  
+  if (result.status === 'success') {
+    alert('Models saved successfully!');
+  } else {
+    alert('Error: ' + result.error);
+  }
+}
+```
+
+**Mevcut Modelleri Öğrenme:**
+```javascript
+// Admin panel → Backend → FAISS
+async function getCurrentModels() {
+  const response = await fetch('/api/retrieval/selected-models');
+  const result = await response.json();
+  
+  if (result.status === 'success') {
+    const defaults = result.data.defaults;
+    console.log('Textual:', defaults.textual);
+    console.log('Visual:', defaults.visual);
+    console.log('Source:', result.source); // "faiss_service" or "local_config"
+  }
+}
+```
+
+---
+
+### Avantajlar
+
+✅ **Merkezi Yönetim** - FAISS service modelleri yönetir  
+✅ **Admin Panel Dostu** - Admin panel sadece backend'e POST atar  
+✅ **Fallback** - FAISS unavailable ise local config kullanılır  
+✅ **Override Edilebilir** - Request'te model gönderilirse o kullanılır  
+✅ **Tracking** - Retrieval tablosunda hangi model kullanıldı kayıtlı  
 
 ---
 
