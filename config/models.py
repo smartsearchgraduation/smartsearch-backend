@@ -13,6 +13,9 @@ AVAILABLE_MODELS = {
     "ViT-L/14@336px": {"name": "ViT-L/14@336px", "dimension": 768},
     "BAAI/bge-large-en-v1.5": {"name": "BAAI/bge-large-en-v1.5", "dimension": 1024},
 
+    # Qwen embedding model
+    "Qwen/Qwen3-Embedding-8B": {"name": "Qwen/Qwen3-Embedding-8B", "dimension": 4096},
+
     # ResNet models - alternative
     "RN50": {"name": "RN50", "dimension": 1024},
     "RN101": {"name": "RN101", "dimension": 1024},
@@ -28,6 +31,7 @@ DEFAULT_VISUAL_MODEL = "ViT-B/32"
 # Model groups for UI organization
 MODEL_GROUPS = {
     "ViT (Önerilen)": ["ViT-B/32", "ViT-B/16", "ViT-L/14", "ViT-L/14@336px", "BAAI/bge-large-en-v1.5"],
+    "Qwen": ["Qwen/Qwen3-Embedding-8B"],
     "ResNet": ["RN50", "RN101", "RN50x4", "RN50x16", "RN50x64"],
 }
 
