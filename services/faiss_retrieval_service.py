@@ -19,14 +19,14 @@ from flask import current_app
 logger = logging.getLogger(__name__)
 
 # These URLs point to the FAISS microservice
-FAISS_SERVICE_URL = os.getenv('FAISS_SERVICE_URL', 'http://localhost:5002/api/retrieval/search')
-FAISS_ADD_PRODUCT_URL = os.getenv('FAISS_ADD_PRODUCT_URL', 'http://localhost:5002/api/retrieval/add-product')
-FAISS_UPDATE_PRODUCT_URL = os.getenv('FAISS_UPDATE_PRODUCT_URL', 'http://localhost:5002/api/retrieval/update-product')
-FAISS_DELETE_PRODUCT_URL = os.getenv('FAISS_DELETE_PRODUCT_URL', 'http://localhost:5002/api/retrieval/delete-product')
-FAISS_TEXT_SEARCH_URL = os.getenv('FAISS_TEXT_SEARCH_URL', 'http://localhost:5002/api/retrieval/search/text')
-FAISS_LATE_FUSION_URL = os.getenv('FAISS_LATE_FUSION_URL', 'http://localhost:5002/api/retrieval/search/late')
-FAISS_MODELS_URL = os.getenv('FAISS_MODELS_URL', 'http://localhost:5002/api/retrieval/models')
-FAISS_CLEAR_INDEX_URL = os.getenv('FAISS_CLEAR_INDEX_URL', 'http://localhost:5002/api/retrieval/clear-index')
+FAISS_SERVICE_URL = os.getenv('FAISS_SERVICE_URL', 'http://127.0.0.1:5002/api/retrieval/search')
+FAISS_ADD_PRODUCT_URL = os.getenv('FAISS_ADD_PRODUCT_URL', 'http://127.0.0.1:5002/api/retrieval/add-product')
+FAISS_UPDATE_PRODUCT_URL = os.getenv('FAISS_UPDATE_PRODUCT_URL', 'http://127.0.0.1:5002/api/retrieval/update-product')
+FAISS_DELETE_PRODUCT_URL = os.getenv('FAISS_DELETE_PRODUCT_URL', 'http://127.0.0.1:5002/api/retrieval/delete-product')
+FAISS_TEXT_SEARCH_URL = os.getenv('FAISS_TEXT_SEARCH_URL', 'http://127.0.0.1:5002/api/retrieval/search/text')
+FAISS_LATE_FUSION_URL = os.getenv('FAISS_LATE_FUSION_URL', 'http://127.0.0.1:5002/api/retrieval/search/late')
+FAISS_MODELS_URL = os.getenv('FAISS_MODELS_URL', 'http://127.0.0.1:5002/api/retrieval/models')
+FAISS_CLEAR_INDEX_URL = os.getenv('FAISS_CLEAR_INDEX_URL', 'http://127.0.0.1:5002/api/retrieval/clear-index')
 
 
 class FAISSRetrievalService:

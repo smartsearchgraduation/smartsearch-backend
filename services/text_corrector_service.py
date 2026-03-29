@@ -16,12 +16,12 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Service URLs from environment
-CORRECTION_SERVICE_URL = os.getenv('CORRECTION_SERVICE_URL', 'http://localhost:5001/correct')
-CORRECTION_MODELS_URL = os.getenv('CORRECTION_MODELS_URL', 'http://localhost:5001/models')
+CORRECTION_SERVICE_URL = os.getenv('CORRECTION_SERVICE_URL', 'http://127.0.0.1:5001/correct')
+CORRECTION_MODELS_URL = os.getenv('CORRECTION_MODELS_URL', 'http://127.0.0.1:5001/models')
 
 # Available correction engines
 ENGINE_SYMSPELL = 'symspell_keyboard'
-ENGINE_BYT5 = 'byt5'
+ENGINE_BYT5 = 'byt5-small'
 DEFAULT_ENGINE = ENGINE_BYT5
 
 # Available correction models
@@ -77,7 +77,11 @@ class TextCorrectorService:
         engine_map = {
             'symspell': ENGINE_SYMSPELL,
             'symspell_keyboard': ENGINE_SYMSPELL,
-            'byt5': ENGINE_BYT5
+            'byt5': ENGINE_BYT5,
+            'byt5-base': ENGINE_BYT5,
+            'byt5-small': 'byt5-small',
+            'byt5-large': 'byt5-large',
+            'qwen-3.5-2b': 'qwen-3.5-2b',
         }
         
         # Use specified engine, map it if possible, otherwise use as-is or default
@@ -176,9 +180,15 @@ class TextCorrectorService:
             if response.status_code == 200:
                 result = response.json()
                 logger.info(f"[TextCorrector] Successfully fetched available models")
+                data = result.get('data', result)
+                engines = data.get('correction_models', [])
+                default_engine = data.get('defaults', {}).get('correction', self.default_engine)
                 return {
                     "status": "success",
-                    "data": result.get('data', result),
+                    "data": {
+                        "engines": engines,
+                        "defaults": {"engine": default_engine},
+                    },
                     "source": "correction_service"
                 }
             else:
@@ -195,6 +205,17 @@ class TextCorrectorService:
             logger.error(f"[TextCorrector] Error fetching models: {e}, using local config")
             return self._get_local_models()
 
+    def save_selected_engine(self, engine: str) -> Dict[str, Any]:
+        """Save the selected correction engine as the new default."""
+        old = self.default_engine
+        self.default_engine = engine
+        logger.info(f"[TextCorrector] Default engine changed: '{old}' -> '{engine}'")
+        return {
+            "status": "success",
+            "message": f"Correction engine saved: {engine}",
+            "data": {"engine": engine},
+        }
+
     def _get_local_models(self) -> Dict[str, Any]:
         """
         Get available correction models from local configuration as a fallback.
@@ -203,16 +224,16 @@ class TextCorrectorService:
             Dict with models list from AVAILABLE_CORRECTION_MODELS
         """
         try:
-            models = [
-                {"id": model_id, "name": display_name}
+            engines = [
+                {"name": model_id, "description": display_name}
                 for model_id, display_name in AVAILABLE_CORRECTION_MODELS.items()
             ]
 
             return {
                 "status": "success",
                 "data": {
-                    "models": models,
-                    "default": DEFAULT_ENGINE
+                    "engines": engines,
+                    "defaults": {"engine": self.default_engine},
                 },
                 "source": "local_config"
             }

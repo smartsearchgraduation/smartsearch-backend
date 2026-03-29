@@ -3,7 +3,7 @@ API routes for text correction operations.
 Provides endpoints to get available spell-checking and typo correction models.
 """
 import logging
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from services.text_corrector_service import text_corrector_service
 
 logger = logging.getLogger(__name__)
@@ -42,3 +42,21 @@ def get_available_models():
             "status": "error",
             "error": str(e)
         }), 500
+
+
+@correction_bp.route('/selected-engine/save', methods=['POST'])
+def save_selected_engine():
+    """Save the selected correction engine as the active default."""
+    try:
+        data = request.get_json(silent=True) or {}
+        engine = data.get('engine')
+
+        if not engine:
+            return jsonify({"status": "error", "error": "Missing 'engine' field"}), 400
+
+        result = text_corrector_service.save_selected_engine(engine)
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"[Correction] Unexpected error saving engine: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500

@@ -17,7 +17,7 @@ class Config:
     DEBUG = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
     
     # Server settings
-    BASE_URL = os.getenv('BASE_URL', 'http://localhost:5000')
+    BASE_URL = os.getenv('BASE_URL', 'http://127.0.0.1:5000')
     
     # Upload settings
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads', 'products')
@@ -25,15 +25,15 @@ class Config:
     ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
     
     # External Services
-    CORRECTION_SERVICE_URL = os.getenv('CORRECTION_SERVICE_URL', 'http://localhost:5001/api/v1/correct')
-    FAISS_SERVICE_URL = os.getenv('FAISS_SERVICE_URL', 'http://localhost:5002/api/retrieval/search')
+    CORRECTION_SERVICE_URL = os.getenv('CORRECTION_SERVICE_URL', 'http://127.0.0.1:5001/correct')
+    FAISS_SERVICE_URL = os.getenv('FAISS_SERVICE_URL', 'http://127.0.0.1:5002/api/retrieval/search')
     
     # PostgreSQL Database settings
     POSTGRES_HOST = os.getenv('POSTGRES_HOST', 'localhost')
     POSTGRES_PORT = os.getenv('POSTGRES_PORT', '5432')
     POSTGRES_DB = os.getenv('POSTGRES_DB', 'smartsearch')
     POSTGRES_USER = os.getenv('POSTGRES_USER', 'postgres')
-    POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD', '159951')
+    POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD', 'postgres')
     
     # SQLAlchemy database URI
     SQLALCHEMY_DATABASE_URI = (
