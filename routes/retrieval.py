@@ -602,8 +602,6 @@ def save_and_rebuild():
             .filter_by(is_active=True)
             .options(
                 joinedload(Product.brand),
-                joinedload(Product.categories),
-                joinedload(Product.images)
             )
             .all())
         

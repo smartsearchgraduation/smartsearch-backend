@@ -677,14 +677,11 @@ def add_all_products():
         # Step 2: Add all products
         logger.info(f"[BulkFAISS] Step 2/2: Adding all products from database...")
         
-        # Get all active products with eager loading for relationships
-        # This prevents N+1 query problems by loading brand, categories, and images upfront
+        # Get all active products with eager loading for brand relationship
         products = (Product.query
             .filter_by(is_active=True)
             .options(
                 joinedload(Product.brand),
-                joinedload(Product.categories),
-                joinedload(Product.images)
             )
             .all())
 
@@ -975,13 +972,11 @@ def rebuild_with_test():
             logger.info(f"[BulkFAISS] Step 3/3: Adding all products from database")
             step3_start = time.time()
 
-            # Get all active products with eager loading for relationships
+            # Get all active products with eager loading for brand relationship
             products = (Product.query
                 .filter_by(is_active=True)
                 .options(
                     joinedload(Product.brand),
-                    joinedload(Product.categories),
-                    joinedload(Product.images)
                 )
                 .all())
 
