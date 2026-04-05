@@ -657,9 +657,9 @@ class SearchService:
             # Build response
             corrected_text = rows[0][0]  # Same for all rows
             raw_text = rows[0][1]
-            fusion_type = rows[0][8] if rows[0][8] else 'text_only'
-            textual_model = rows[0][9]
-            visual_model = rows[0][10]
+            fusion_type = rows[0][7] if rows[0][7] else 'text_only'
+            textual_model = rows[0][8]
+            visual_model = rows[0][9]
             products = []
             
             # Get upload folder path
@@ -696,14 +696,14 @@ class SearchService:
                     continue
 
                 product_data = {
-                    'product_id': row[11],
-                    'name': row[12],
-                    'price': float(row[13]) if row[13] else None,
+                    'product_id': row[10],
+                    'name': row[11],
+                    'price': float(row[12]) if row[12] else None,
                     'rank': row[2],
                     'score': float(row[3]) if row[3] else None,
-                    'brand': {'brand_id': row[16], 'name': row[14]} if row[14] else None,
+                    'brand': {'brand_id': row[14], 'name': row[13]} if row[13] else None,
                     'images': images_base64,
-                    'is_relevant': row[17]
+                    'is_relevant': row[16]
                 }
                 
                 # Add detailed scores if available (late fusion)
