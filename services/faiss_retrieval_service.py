@@ -19,14 +19,20 @@ from flask import current_app
 logger = logging.getLogger(__name__)
 
 # These URLs point to the FAISS microservice
-FAISS_SERVICE_URL = os.getenv('FAISS_SERVICE_URL', 'http://127.0.0.1:5002/api/retrieval/search')
-FAISS_ADD_PRODUCT_URL = os.getenv('FAISS_ADD_PRODUCT_URL', 'http://127.0.0.1:5002/api/retrieval/add-product')
-FAISS_UPDATE_PRODUCT_URL = os.getenv('FAISS_UPDATE_PRODUCT_URL', 'http://127.0.0.1:5002/api/retrieval/update-product')
-FAISS_DELETE_PRODUCT_URL = os.getenv('FAISS_DELETE_PRODUCT_URL', 'http://127.0.0.1:5002/api/retrieval/delete-product')
-FAISS_TEXT_SEARCH_URL = os.getenv('FAISS_TEXT_SEARCH_URL', 'http://127.0.0.1:5002/api/retrieval/search/text')
-FAISS_LATE_FUSION_URL = os.getenv('FAISS_LATE_FUSION_URL', 'http://127.0.0.1:5002/api/retrieval/search/late')
-FAISS_MODELS_URL = os.getenv('FAISS_MODELS_URL', 'http://127.0.0.1:5002/api/retrieval/models')
-FAISS_CLEAR_INDEX_URL = os.getenv('FAISS_CLEAR_INDEX_URL', 'http://127.0.0.1:5002/api/retrieval/clear-index')
+FAISS_SERVICE_URL = os.getenv('FAISS_SERVICE_URL', 'http://localhost:5002/api/retrieval/search')
+FAISS_ADD_PRODUCT_URL = os.getenv('FAISS_ADD_PRODUCT_URL', 'http://localhost:5002/api/retrieval/add-product')
+FAISS_UPDATE_PRODUCT_URL = os.getenv('FAISS_UPDATE_PRODUCT_URL', 'http://localhost:5002/api/retrieval/update-product')
+FAISS_DELETE_PRODUCT_URL = os.getenv('FAISS_DELETE_PRODUCT_URL', 'http://localhost:5002/api/retrieval/delete-product')
+FAISS_TEXT_SEARCH_URL = os.getenv('FAISS_TEXT_SEARCH_URL', 'http://localhost:5002/api/retrieval/search/text')
+FAISS_IMAGE_SEARCH_URL = os.getenv('FAISS_IMAGE_SEARCH_URL', 'http://localhost:5002/api/retrieval/search/image')
+FAISS_LATE_FUSION_URL = os.getenv('FAISS_LATE_FUSION_URL', 'http://localhost:5002/api/retrieval/search/late')
+FAISS_EARLY_FUSION_URL = os.getenv('FAISS_EARLY_FUSION_URL', 'http://localhost:5002/api/retrieval/search/early')
+FAISS_IMAGE_BY_TEXT_URL = os.getenv('FAISS_IMAGE_BY_TEXT_URL', 'http://localhost:5002/api/retrieval/search/image-by-text')
+FAISS_TEXT_BY_IMAGE_URL = os.getenv('FAISS_TEXT_BY_IMAGE_URL', 'http://localhost:5002/api/retrieval/search/text-by-image')
+FAISS_MODELS_URL = os.getenv('FAISS_MODELS_URL', 'http://localhost:5002/api/retrieval/models')
+FAISS_INDEX_STATS_URL = os.getenv('FAISS_INDEX_STATS_URL', 'http://localhost:5002/api/retrieval/index-stats')
+FAISS_HEALTH_URL = os.getenv('FAISS_HEALTH_URL', 'http://localhost:5002/api/health')
+FAISS_CLEAR_INDEX_URL = os.getenv('FAISS_CLEAR_INDEX_URL', 'http://localhost:5002/api/retrieval/clear-index')
 
 
 class FAISSRetrievalService:
@@ -48,8 +54,14 @@ class FAISSRetrievalService:
         self.update_product_url = FAISS_UPDATE_PRODUCT_URL
         self.delete_product_url = FAISS_DELETE_PRODUCT_URL
         self.text_search_url = FAISS_TEXT_SEARCH_URL
+        self.image_search_url = FAISS_IMAGE_SEARCH_URL
         self.late_fusion_url = FAISS_LATE_FUSION_URL
+        self.early_fusion_url = FAISS_EARLY_FUSION_URL
+        self.image_by_text_url = FAISS_IMAGE_BY_TEXT_URL
+        self.text_by_image_url = FAISS_TEXT_BY_IMAGE_URL
         self.models_url = FAISS_MODELS_URL
+        self.index_stats_url = FAISS_INDEX_STATS_URL
+        self.health_url = FAISS_HEALTH_URL
         self.clear_index_url = FAISS_CLEAR_INDEX_URL
 
     def search(
@@ -170,6 +182,271 @@ class FAISSRetrievalService:
 
         except Exception as e:
             logger.error(f"[FAISS] Text search error: {e}")
+            return {'status': 'error', 'error': str(e)}
+
+    def search_image(
+        self,
+        image_path: str,
+        visual_model_name: str = "ViT-B/32",
+        top_k: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Search for products using an image query.
+        
+        Encodes the query image and searches the visual index to find
+        visually similar products.
+        
+        Args:
+            image_path: Full path to the query image file
+            visual_model_name: Which embedding model to use (default: ViT-B/32)
+            top_k: Maximum number of results to return
+        
+        Returns:
+            Search results with product IDs, scores, and best matching image numbers
+        """
+        if not image_path or not os.path.exists(image_path):
+            return {"status": "error", "error": f"Image not found: {image_path}"}
+            
+        if not HAS_REQUESTS:
+            logger.warning("[FAISS] requests library not installed")
+            return {'status': 'error', 'error': 'requests library missing'}
+            
+        try:
+            logger.info(f"[FAISS] Image search: '{image_path}' (model={visual_model_name})")
+            payload = {
+                'image': image_path,
+                'visual_model_name': visual_model_name,
+                'top_k': top_k
+            }
+            response = requests.post(
+                self.image_search_url,
+                json=payload,
+                timeout=15
+            )
+            
+            if response.status_code != 200:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get('error', response.text)
+                except:
+                    error_msg = response.text
+                
+                logger.error(f"[FAISS] Image search failed: {response.status_code} - {error_msg}")
+                return {'status': 'error', 'error': f"FAISS Error ({response.status_code}): {error_msg}"}
+
+            result = response.json()
+            
+            if result.get('status') == 'success' or result.get('success', False):
+                return result
+            else:
+                error = result.get('error', 'Unknown error from FAISS service')
+                logger.error(f"[FAISS] Image search failed: {error}")
+                return {'status': 'error', 'error': error}
+
+        except Exception as e:
+            logger.error(f"[FAISS] Image search error: {e}")
+            return {'status': 'error', 'error': str(e)}
+
+    def search_early_fusion(
+        self,
+        text: str,
+        image_path: str,
+        text_weight: float = 0.5,
+        fused_model_name: str = "ViT-B/32",
+        top_k: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Search using early fusion of text and image into a single embedding.
+        
+        Fuses text and image into a single query embedding using CLIP's shared
+        embedding space, then searches the Fused index. Only CLIP models are
+        supported for early fusion since both modalities must share the same
+        embedding space.
+        
+        Args:
+            text: The user's search query
+            image_path: Full path to the query image file
+            text_weight: How much to weight text vs image (0.5 = equal)
+            fused_model_name: CLIP model for fused embedding (default: ViT-B/32)
+            top_k: How many results to return
+        
+        Returns:
+            Search results with combined scores
+        """
+        if not text or not text.strip():
+            return {"status": "error", "error": "text is required"}
+            
+        if not image_path or not os.path.exists(image_path):
+            return {"status": "error", "error": f"Image not found: {image_path}"}
+            
+        if not HAS_REQUESTS:
+            logger.warning("[FAISS] requests library not installed")
+            return {'status': 'error', 'error': 'requests library missing'}
+            
+        try:
+            logger.info(f"[FAISS] Early fusion search: '{text}' + '{image_path}'")
+            payload = {
+                'text': text,
+                'image': image_path,
+                'fused_model_name': fused_model_name,
+                'text_weight': text_weight,
+                'top_k': top_k
+            }
+            response = requests.post(
+                self.early_fusion_url,
+                json=payload,
+                timeout=15
+            )
+            
+            if response.status_code != 200:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get('error', response.text)
+                except:
+                    error_msg = response.text
+                
+                logger.error(f"[FAISS] Early fusion search failed: {response.status_code} - {error_msg}")
+                return {'status': 'error', 'error': f"FAISS Error ({response.status_code}): {error_msg}"}
+
+            result = response.json()
+            
+            if result.get('status') == 'success' or result.get('success', False):
+                return result
+            else:
+                error = result.get('error', 'Unknown error from FAISS service')
+                logger.error(f"[FAISS] Early fusion search failed: {error}")
+                return {'status': 'error', 'error': error}
+
+        except Exception as e:
+            logger.error(f"[FAISS] Early fusion search error: {e}")
+            return {'status': 'error', 'error': str(e)}
+
+    def search_image_by_text(
+        self,
+        text: str,
+        visual_model_name: str = "ViT-B/32",
+        top_k: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Cross-modal search: Find product images using a text query.
+        
+        Encodes the text with CLIP's text encoder and searches the Visual index.
+        Only CLIP models are supported since both modalities must share the same
+        embedding space.
+        
+        Args:
+            text: The text query to search for images
+            visual_model_name: CLIP model to use (default: ViT-B/32)
+            top_k: Maximum number of results to return
+        
+        Returns:
+            Search results with product IDs, scores, and matching image numbers
+        """
+        if not text or not text.strip():
+            return {"status": "error", "error": "text is required"}
+            
+        if not HAS_REQUESTS:
+            logger.warning("[FAISS] requests library not installed")
+            return {'status': 'error', 'error': 'requests library missing'}
+            
+        try:
+            logger.info(f"[FAISS] Image-by-text search: '{text}' (model={visual_model_name})")
+            payload = {
+                'text': text,
+                'visual_model_name': visual_model_name,
+                'top_k': top_k
+            }
+            response = requests.post(
+                self.image_by_text_url,
+                json=payload,
+                timeout=10
+            )
+            
+            if response.status_code != 200:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get('error', response.text)
+                except:
+                    error_msg = response.text
+                
+                logger.error(f"[FAISS] Image-by-text search failed: {response.status_code} - {error_msg}")
+                return {'status': 'error', 'error': f"FAISS Error ({response.status_code}): {error_msg}"}
+
+            result = response.json()
+            
+            if result.get('status') == 'success' or result.get('success', False):
+                return result
+            else:
+                error = result.get('error', 'Unknown error from FAISS service')
+                logger.error(f"[FAISS] Image-by-text search failed: {error}")
+                return {'status': 'error', 'error': error}
+
+        except Exception as e:
+            logger.error(f"[FAISS] Image-by-text search error: {e}")
+            return {'status': 'error', 'error': str(e)}
+
+    def search_text_by_image(
+        self,
+        image_path: str,
+        textual_model_name: str = "ViT-B/32",
+        top_k: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Cross-modal search: Find product text descriptions using an image query.
+        
+        Encodes the image with CLIP's image encoder and searches the Textual index.
+        Only CLIP models are supported, and the textual index must have been built
+        with the same CLIP model.
+        
+        Args:
+            image_path: Full path to the query image file
+            textual_model_name: CLIP model to use (default: ViT-B/32)
+            top_k: Maximum number of results to return
+        
+        Returns:
+            Search results with product IDs and similarity scores
+        """
+        if not image_path or not os.path.exists(image_path):
+            return {"status": "error", "error": f"Image not found: {image_path}"}
+            
+        if not HAS_REQUESTS:
+            logger.warning("[FAISS] requests library not installed")
+            return {'status': 'error', 'error': 'requests library missing'}
+            
+        try:
+            logger.info(f"[FAISS] Text-by-image search: '{image_path}' (model={textual_model_name})")
+            payload = {
+                'image': image_path,
+                'textual_model_name': textual_model_name,
+                'top_k': top_k
+            }
+            response = requests.post(
+                self.text_by_image_url,
+                json=payload,
+                timeout=15
+            )
+            
+            if response.status_code != 200:
+                try:
+                    error_data = response.json()
+                    error_msg = error_data.get('error', response.text)
+                except:
+                    error_msg = response.text
+                
+                logger.error(f"[FAISS] Text-by-image search failed: {response.status_code} - {error_msg}")
+                return {'status': 'error', 'error': f"FAISS Error ({response.status_code}): {error_msg}"}
+
+            result = response.json()
+            
+            if result.get('status') == 'success' or result.get('success', False):
+                return result
+            else:
+                error = result.get('error', 'Unknown error from FAISS service')
+                logger.error(f"[FAISS] Text-by-image search failed: {error}")
+                return {'status': 'error', 'error': error}
+
+        except Exception as e:
+            logger.error(f"[FAISS] Text-by-image search error: {e}")
             return {'status': 'error', 'error': str(e)}
 
     def search_late_fusion(
@@ -675,13 +952,10 @@ class FAISSRetrievalService:
             return {"status": "error", "error": "requests library not installed"}
 
         try:
-            logger.info(f"[FAISS] Fetching index statistics")
-
-            # Assuming there's an endpoint for index stats
-            stats_url = self.models_url.replace('/models', '/index-stats')  # Construct stats URL from models URL
+            logger.info(f"[FAISS] Fetching index statistics from {self.index_stats_url}")
             
             response = requests.get(
-                stats_url,
+                self.index_stats_url,
                 timeout=10
             )
 
@@ -709,6 +983,49 @@ class FAISSRetrievalService:
         except Exception as e:
             logger.error(f"[FAISS] Error fetching index stats: {e}")
             return {"status": "error", "error": str(e)}
+
+    def health_check(self) -> Dict[str, Any]:
+        """
+        Check if the FAISS retrieval service is healthy.
+        
+        Returns:
+            Dict with health status and service information
+        """
+        if not HAS_REQUESTS:
+            logger.warning("[FAISS] requests library not installed")
+            return {"status": "unhealthy", "error": "requests library not installed"}
+
+        try:
+            logger.info(f"[FAISS] Checking health at {self.health_url}")
+            
+            response = requests.get(
+                self.health_url,
+                timeout=5
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"[FAISS] Service is healthy")
+                return {
+                    "status": "healthy",
+                    "data": result
+                }
+            else:
+                logger.warning(f"[FAISS] Health check returned {response.status_code}")
+                return {
+                    "status": "unhealthy",
+                    "error": f"Health check returned {response.status_code}"
+                }
+
+        except requests.exceptions.ConnectionError:
+            logger.error(f"[FAISS] Service not available at {self.health_url}")
+            return {"status": "unhealthy", "error": "FAISS service not available"}
+        except requests.exceptions.Timeout:
+            logger.error(f"[FAISS] Health check timeout")
+            return {"status": "unhealthy", "error": "Health check timeout"}
+        except Exception as e:
+            logger.error(f"[FAISS] Health check error: {e}")
+            return {"status": "unhealthy", "error": str(e)}
 
     def _get_local_models(self) -> Dict[str, Any]:
         """

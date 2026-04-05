@@ -24,24 +24,37 @@ class SearchService:
     The heart of our search functionality.
     
     When a user searches for something, this service:
-    1. Fixes any typos in their query
-    2. Asks FAISS for the most relevant products
+    1. Fixes any typos in their query (if correction_enabled)
+    2. Asks FAISS for the most relevant products (if semantic_search_enabled)
+    3. Does DB ilike search (if semantic_search_enabled=false)
     3. Falls back to a simple database search if FAISS is down
     4. Saves everything to the database for analytics
     """
     
     @staticmethod
-    def execute_search(raw_text: str, image: Optional[str] = None, engine: Optional[str] = None) -> Dict[str, Any]:
+    def execute_search(
+        raw_text: str, 
+        image: Optional[str] = None, 
+        engine: Optional[str] = None,
+        semantic_search_enabled: bool = True,
+        correction_enabled: bool = True,
+        fusion_type: str = 'late'
+    ) -> Dict[str, Any]:
         """
         Run a complete search from start to finish.
         
         This is the main entry point for searches. It handles the entire flow:
-        spell correction, FAISS lookup, database fallback, and logging.
+        spell correction (if enabled), FAISS lookup or DB search (toggle-based), 
+        and logging.
         
         Args:
             raw_text: What the user typed into the search box
             image: Optional path to an uploaded image for visual search
             engine: Optional correction engine to use
+            semantic_search_enabled: If True, use FAISS; if False, use DB ilike
+            correction_enabled: If True, apply spell correction
+            fusion_type: How to combine text+image: 'late', 'early', 'text', 'image', 
+                        'image_by_text', 'text_by_image'
         
         Returns:
             A dict with 'search_id' that can be used to fetch the results
@@ -54,76 +67,155 @@ class SearchService:
         logger.info(f"[Search] 📝 Raw Text: '{raw_text}'")
         logger.info(f"[Search] 🖼️  Image: {image if image else 'None'}")
         logger.info(f"[Search] 🔧 Engine: {engine if engine else 'Default'}")
+        logger.info(f"[Search] 🔘 Toggles: semantic={semantic_search_enabled}, correction={correction_enabled}, fusion={fusion_type}")
         
         try:
-            # Step 1: Text Correction
-            logger.info(f"")
-            logger.info(f"[Search] ━━━ STEP 1: TEXT CORRECTION ━━━")
-            correction_result = text_corrector_service.correct(raw_text, engine=engine)
-            corrected_text = correction_result.get('corrected_text', raw_text)
-            actual_engine = correction_result.get('engine', engine or 'UNKNOWN')
-            correction_latency = correction_result.get('latency_ms', 0)  # Time from the correction service response
+            # Step 1: Text Correction (if enabled)
+            correction_latency = 0
+            corrected_text = raw_text
+            actual_engine = 'disabled'
             
-            logger.info(f"[Search] 📥 Input:     '{raw_text}'")
-            logger.info(f"[Search] 📤 Output:    '{corrected_text}'")
-            logger.info(f"[Search] 🔧 Engine:    {actual_engine}")
-            logger.info(f"[Search] ⏱️  Duration:  {correction_latency:.2f}ms")
-            logger.info(f"[Search] ✏️  Changed:   {raw_text != corrected_text}")
-            
-            # Step 2: FAISS Search
-            logger.info(f"")
-            logger.info(f"[Search] ━━━ STEP 2: FAISS RETRIEVAL ━━━")
-            start_faiss = time.time()
-            
-            if image:
-                logger.info(f"[Search] 🔀 Mode: Late Fusion (Text + Image)")
-                faiss_result = faiss_service.search_late_fusion(
-                    text=corrected_text,
-                    image_path=image,
-                    top_k=10
-                )
+            if correction_enabled:
+                logger.info(f"")
+                logger.info(f"[Search] ━━━ STEP 1: TEXT CORRECTION ━━━")
+                correction_result = text_corrector_service.correct(raw_text, engine=engine)
+                corrected_text = correction_result.get('corrected_text', raw_text)
+                actual_engine = correction_result.get('engine', engine or 'UNKNOWN')
+                correction_latency = correction_result.get('latency_ms', 0)
+                
+                logger.info(f"[Search] 📥 Input:     '{raw_text}'")
+                logger.info(f"[Search] 📤 Output:    '{corrected_text}'")
+                logger.info(f"[Search] 🔧 Engine:    {actual_engine}")
+                logger.info(f"[Search] ⏱️  Duration:  {correction_latency:.2f}ms")
+                logger.info(f"[Search] ✏️  Changed:   {raw_text != corrected_text}")
             else:
-                logger.info(f"[Search] 📝 Mode: Text-only Search")
-                faiss_result = faiss_service.search_text(
-                    text=corrected_text,
-                    top_k=10
-                )
+                logger.info(f"")
+                logger.info(f"[Search] ━━━ STEP 1: TEXT CORRECTION (DISABLED) ━━━")
+                logger.info(f"[Search] ℹ️  Skipping spell correction (correction_enabled=false)")
             
-            faiss_duration = (time.time() - start_faiss) * 1000
+            # Step 2: Search (FAISS or DB based on toggle)
+            logger.info(f"")
+            logger.info(f"[Search] ━━━ STEP 2: SEARCH ━━━")
+            start_search = time.time()
             
-            # Log FAISS response details
-            logger.info(f"[Search] 📊 FAISS Response Keys: {list(faiss_result.keys())}")
-            logger.info(f"[Search] ✅ Status: {faiss_result.get('status', faiss_result.get('success', 'unknown'))}")
-
-            # Parse FAISS results and extract model info
-            faiss_products = faiss_result.get('products') or faiss_result.get('results') or []
-            is_success = faiss_result.get('success') is True or faiss_result.get('status') == 'success'
-            faiss_success = is_success and len(faiss_products) > 0
+            if semantic_search_enabled:
+                # Use FAISS for semantic search
+                logger.info(f"[Search] 🔍 Mode: Semantic Search (FAISS)")
+                
+                if image:
+                    # Has image - determine fusion type
+                    if fusion_type == 'early':
+                        logger.info(f"[Search] 🔀 Fusion: Early Fusion (CLIP)")
+                        faiss_result = faiss_service.search_early_fusion(
+                            text=corrected_text,
+                            image_path=image,
+                            top_k=10
+                        )
+                    elif fusion_type == 'image':
+                        logger.info(f"[Search] 🔀 Fusion: Image Only")
+                        faiss_result = faiss_service.search_image(
+                            image_path=image,
+                            top_k=10
+                        )
+                    elif fusion_type == 'image_by_text':
+                        logger.info(f"[Search] 🔀 Fusion: Image-by-Text (Cross-Modal)")
+                        faiss_result = faiss_service.search_image_by_text(
+                            text=corrected_text,
+                            top_k=10
+                        )
+                    elif fusion_type == 'text_by_image':
+                        logger.info(f"[Search] 🔀 Fusion: Text-by-Image (Cross-Modal)")
+                        faiss_result = faiss_service.search_text_by_image(
+                            image_path=image,
+                            top_k=10
+                        )
+                    else:
+                        # Default: late fusion
+                        logger.info(f"[Search] 🔀 Fusion: Late Fusion")
+                        faiss_result = faiss_service.search_late_fusion(
+                            text=corrected_text,
+                            image_path=image,
+                            top_k=10
+                        )
+                else:
+                    # Text only search
+                    logger.info(f"[Search] 📝 Mode: Text-only Search")
+                    faiss_result = faiss_service.search_text(
+                        text=corrected_text,
+                        top_k=10
+                    )
+                
+                # Parse FAISS results
+                faiss_products = faiss_result.get('products') or faiss_result.get('results') or []
+                is_success = faiss_result.get('success') is True or faiss_result.get('status') == 'success'
+                faiss_success = is_success and len(faiss_products) > 0
+                
+                # Extract model information from FAISS response
+                textual_model_used = faiss_result.get('textual_model_name')
+                visual_model_used = faiss_result.get('visual_model_name')
+                
+            else:
+                # Use DB ilike search (semantic disabled)
+                logger.info(f"[Search] 🔍 Mode: Database ILIKE Search (Semantic Disabled)")
+                faiss_success = False
+                faiss_result = {}
+                faiss_products = []
+                textual_model_used = None
+                visual_model_used = None
             
-            # Extract model information from FAISS response
-            textual_model_used = faiss_result.get('textual_model_name')
-            visual_model_used = faiss_result.get('visual_model_name')
-
-            logger.info(f"[Search] 📦 Products Found: {len(faiss_products)}")
-            logger.info(f"[Search] ⏱️  Duration: {faiss_duration:.2f}ms")
+            search_duration = (time.time() - start_search) * 1000
+            
+            # Log response details
+            if semantic_search_enabled:
+                logger.info(f"[Search] 📊 FAISS Response Keys: {list(faiss_result.keys())}")
+                logger.info(f"[Search] ✅ Status: {faiss_result.get('status', faiss_result.get('success', 'unknown'))}")
+                logger.info(f"[Search] 📦 Products Found: {len(faiss_products)}")
+            logger.info(f"[Search] ⏱️  Duration: {search_duration:.2f}ms")
             
             # Step 3: Process Results
             logger.info(f"")
             logger.info(f"[Search] ━━━ STEP 3: PROCESS RESULTS ━━━")
             
-            if faiss_success:
+            # Determine fusion type from parameters
+            fusion_type_actual = 'text_only'  # default
+            if image:
+                if fusion_type == 'early':
+                    fusion_type_actual = 'early_fusion'
+                elif fusion_type == 'image':
+                    fusion_type_actual = 'image_only'
+                elif fusion_type == 'image_by_text':
+                    fusion_type_actual = 'image_by_text'
+                elif fusion_type == 'text_by_image':
+                    fusion_type_actual = 'text_by_image'
+                else:
+                    fusion_type_actual = 'late_fusion'
+            
+            if semantic_search_enabled and faiss_success:
                 logger.info(f"[Search] ✅ Using FAISS results")
-                products = [
-                    {'product_id': p['product_id'], 'score': p.get('score', 1.0)}
-                    for p in faiss_products
-                ]
+                
+                # Parse results based on fusion type
+                products = []
+                for p in faiss_products:
+                    product_data = {
+                        'product_id': p['product_id'],
+                        'score': p.get('score', 1.0),
+                        'text_score': p.get('text_score'),
+                        'image_score': p.get('image_score'),
+                        'combined_score': p.get('combined_score'),
+                        'best_image_no': p.get('best_image_no')
+                    }
+                    products.append(product_data)
                 
                 # Log top 5 results with scores
-                logger.info(f"[Search] 🏆 Top Results:")
+                logger.info(f"[Search] 🏆 Top Results ({fusion_type_actual}):")
                 for i, p in enumerate(products[:5], 1):
-                    logger.info(f"[Search]    {i}. product_id={p['product_id']}, score={p['score']:.6f}")
+                    if fusion_type_actual == 'late_fusion':
+                        logger.info(f"[Search]    {i}. product_id={p['product_id']}, combined={p.get('combined_score', p['score']):.6f}, text={p.get('text_score', 0):.6f}, image={p.get('image_score', 0):.6f}")
+                    else:
+                        logger.info(f"[Search]    {i}. product_id={p['product_id']}, score={p['score']:.6f}")
             else:
-                logger.info(f"[Search] ⚠️  FAISS failed/empty, falling back to DB search")
+                # FAISS failed/empty OR semantic search disabled -> DB search
+                logger.info(f"[Search] ⚠️  Using DB search (semantic={semantic_search_enabled}, faiss_success={faiss_success})")
                 start_db = time.time()
                 search_term = f"%{corrected_text}%"
                 
@@ -132,9 +224,16 @@ class SearchService:
                 ).order_by(Product.name.asc()).limit(20).all()
                 
                 products = [
-                    {'product_id': p.product_id, 'score': 1.0}
+                    {
+                        'product_id': p.product_id, 
+                        'score': 1.0,
+                        'text_score': None,
+                        'image_score': None,
+                        'combined_score': 1.0
+                    }
                     for p in db_products
                 ]
+                fusion_type_actual = 'db_fallback'
                 db_duration = (time.time() - start_db) * 1000
                 logger.info(f"[Search] 📂 DB returned {len(products)} products (took {db_duration:.2f}ms)")
             
@@ -151,7 +250,7 @@ class SearchService:
             db.session.flush()
             
             logger.info(f"[Search] 🆔 Search ID: {search_query.search_id}")
-            logger.info(f"[Search] 💾 Saving {len(products)} retrieve records...")
+            logger.info(f"[Search] 💾 Saving {len(products)} retrieve records... (fusion_type: {fusion_type_actual})")
             
             for rank, product_info in enumerate(products, start=1):
                 retrieve = Retrieve(
@@ -161,7 +260,11 @@ class SearchService:
                     weight=product_info['score'],
                     textual_model_name=textual_model_used,
                     visual_model_name=visual_model_used,
-                    correction_engine=actual_engine
+                    correction_engine=actual_engine,
+                    fusion_type=fusion_type,
+                    text_score=product_info.get('text_score'),
+                    image_score=product_info.get('image_score'),
+                    combined_score=product_info.get('combined_score')
                 )
                 db.session.add(retrieve)
             
@@ -206,17 +309,28 @@ class SearchService:
             raise
     
     @staticmethod
-    def execute_rawtext_search(original_search_id: int, image: Optional[str] = None) -> Dict[str, Any]:
+    def execute_rawtext_search(
+        original_search_id: int, 
+        image: Optional[str] = None,
+        semantic_search_enabled: bool = True,
+        correction_enabled: bool = False,  # Raw text always skips correction
+        fusion_type: str = 'late'
+    ) -> Dict[str, Any]:
         """
-        Execute a search using raw text from the original search (without correction).
+        Execute a search using raw text from the original search.
         
         This is called when the user clicks "search with raw text" button in frontend.
-        It retrieves the original search's raw_text and searches FAISS directly
-        without spell correction.
+        It retrieves the original search's raw_text and searches based on toggles:
+        - semantic_search_enabled: FAISS vs DB ilike
+        - fusion_type: How to combine text+image
         
         Args:
             original_search_id: The ID of the original search to get raw_text from
             image: Optional path to an uploaded image for visual search
+            semantic_search_enabled: If True, use FAISS; if False, use DB ilike
+            correction_enabled: Always False for raw text search
+            fusion_type: How to combine text+image: 'late', 'early', 'text', 'image',
+                      'image_by_text', 'text_by_image'
         
         Returns:
             A dict with 'new_search_id' that can be used to fetch the results
@@ -235,6 +349,7 @@ class SearchService:
         logger.info(f"{'='*60}")
         logger.info(f"[Search] 🆔 Original Search ID: {original_search_id}")
         logger.info(f"[Search] 🖼️  Image: {image if image else 'None'}")
+        logger.info(f"[Search] 🔘 Toggles: semantic={semantic_search_enabled}, correction={correction_enabled}, fusion={fusion_type}")
         
         try:
             # Step 1: Retrieve Original Query
@@ -246,57 +361,139 @@ class SearchService:
             
             raw_text = original_search.raw_text
             logger.info(f"[Search] 📝 Found Raw Text: '{raw_text}'")
-            logger.info(f"[Search] ℹ️  Skipping spell correction")
+            logger.info(f"[Search] ℹ️  Skipping spell correction (raw text search)")
             
             # Step 2: Search EXECUTION
             logger.info(f"")
             logger.info(f"[Search] ━━━ STEP 2: SEARCH EXECUTION ━━━")
             start_search = time.time()
             
-            # Search FAISS with raw text (no correction)
-            if image:
-                logger.info(f"[Search] 🔀 Mode: Late Fusion (Text + Image)")
-                faiss_result = faiss_service.search_late_fusion(
-                    text=raw_text,
-                    image_path=image,
-                    top_k=10
-                )
+            textual_model_used = None
+            visual_model_used = None
+            
+            if semantic_search_enabled:
+                # Use FAISS for semantic search
+                logger.info(f"[Search] 🔍 Mode: Semantic Search (FAISS)")
+                
+                if image:
+                    # Has image - determine fusion type
+                    if fusion_type == 'early':
+                        logger.info(f"[Search] 🔀 Fusion: Early Fusion (CLIP)")
+                        faiss_result = faiss_service.search_early_fusion(
+                            text=raw_text,
+                            image_path=image,
+                            top_k=10
+                        )
+                    elif fusion_type == 'image':
+                        logger.info(f"[Search] 🔀 Fusion: Image Only")
+                        faiss_result = faiss_service.search_image(
+                            image_path=image,
+                            top_k=10
+                        )
+                    elif fusion_type == 'image_by_text':
+                        logger.info(f"[Search] 🔀 Fusion: Image-by-Text (Cross-Modal)")
+                        faiss_result = faiss_service.search_image_by_text(
+                            text=raw_text,
+                            top_k=10
+                        )
+                    elif fusion_type == 'text_by_image':
+                        logger.info(f"[Search] 🔀 Fusion: Text-by-Image (Cross-Modal)")
+                        faiss_result = faiss_service.search_text_by_image(
+                            image_path=image,
+                            top_k=10
+                        )
+                    else:
+                        # Default: late fusion
+                        logger.info(f"[Search] 🔀 Fusion: Late Fusion")
+                        faiss_result = faiss_service.search_late_fusion(
+                            text=raw_text,
+                            image_path=image,
+                            top_k=10
+                        )
+                else:
+                    # Text only search
+                    logger.info(f"[Search] 📝 Mode: Text-only Search")
+                    faiss_result = faiss_service.search_text(
+                        text=raw_text,
+                        top_k=10
+                    )
+                
+                # Parse FAISS results
+                faiss_products = faiss_result.get('products') or faiss_result.get('results') or []
+                is_success = faiss_result.get('success') is True or faiss_result.get('status') == 'success'
+                faiss_success = is_success and len(faiss_products) > 0
+                
+                # Extract model information
+                textual_model_used = faiss_result.get('textual_model_name')
+                visual_model_used = faiss_result.get('visual_model_name')
+                
             else:
-                logger.info(f"[Search] 📝 Mode: Text-only Search")
-                faiss_result = faiss_service.search_text(
-                    text=raw_text,
-                    top_k=10
-                )
+                # Use DB ilike search (semantic disabled)
+                logger.info(f"[Search] 🔍 Mode: Database ILIKE Search (Semantic Disabled)")
+                faiss_success = False
+                faiss_result = {}
+                faiss_products = []
             
             search_duration = (time.time() - start_search) * 1000
-
-            # FAISS can return results in different formats, so handle both
-            faiss_products = faiss_result.get('products') or faiss_result.get('results') or []
-            is_success = faiss_result.get('success') is True or faiss_result.get('status') == 'success'
-
-            faiss_success = is_success and len(faiss_products) > 0
-            
-            # Extract model information from FAISS response
-            textual_model_used = faiss_result.get('textual_model_name')
-            visual_model_used = faiss_result.get('visual_model_name')
 
             logger.info(f"[Search] 📊 FAISS Response Keys: {list(faiss_result.keys())}")
             logger.info(f"[Search] ✅ Status: {faiss_result.get('status', faiss_result.get('success', 'unknown'))}")
             logger.info(f"[Search] 📦 Products Found: {len(faiss_products)}")
             logger.info(f"[Search] ⏱️  Search Duration: {search_duration:.2f}ms")
             
+            # Determine fusion type from parameters
+            fusion_type_actual = 'text_only'  # default
+            if image:
+                if fusion_type == 'early':
+                    fusion_type_actual = 'early_fusion'
+                elif fusion_type == 'image':
+                    fusion_type_actual = 'image_only'
+                elif fusion_type == 'image_by_text':
+                    fusion_type_actual = 'image_by_text'
+                elif fusion_type == 'text_by_image':
+                    fusion_type_actual = 'text_by_image'
+                else:
+                    fusion_type_actual = 'late_fusion'
+            
             # Use FAISS results if we got them, otherwise fall back to database search
-            if faiss_success:
+            if semantic_search_enabled and faiss_success:
                 logger.info(f"[Search] ✅ Using FAISS results")
-                products = [
-                    {'product_id': p['product_id'], 'score': p.get('score', 1.0)}
-                    for p in faiss_products
-                ]
+                
+                # Parse results based on fusion type
+                products = []
+                for p in faiss_products:
+                    product_data = {
+                        'product_id': p['product_id'],
+                        'score': p.get('score', 1.0),
+                        'text_score': p.get('text_score'),
+                        'image_score': p.get('image_score'),
+                        'combined_score': p.get('combined_score'),
+                        'best_image_no': p.get('best_image_no')
+                    }
+                    products.append(product_data)
+                
+                # Determine fusion type from results
+                if image:
+                    if fusion_type == 'early':
+                        fusion_type_actual = 'early_fusion'
+                    elif fusion_type == 'image':
+                        fusion_type_actual = 'image_only'
+                    elif fusion_type == 'image_by_text':
+                        fusion_type_actual = 'image_by_text'
+                    elif fusion_type == 'text_by_image':
+                        fusion_type_actual = 'text_by_image'
+                    else:
+                        fusion_type_actual = 'late_fusion'
+                else:
+                    fusion_type_actual = 'text_only'
                 
                 # Log top 5 results with scores
-                logger.info(f"[Search] 🏆 Top Results:")
+                logger.info(f"[Search] 🏆 Top Results ({fusion_type_actual}):")
                 for i, p in enumerate(products[:5], 1):
-                    logger.info(f"[Search]    {i}. product_id={p['product_id']}, score={p['score']:.6f}")
+                    if fusion_type_actual == 'late_fusion':
+                        logger.info(f"[Search]    {i}. product_id={p['product_id']}, combined={p.get('combined_score', p['score']):.6f}, text={p.get('text_score', 0):.6f}, image={p.get('image_score', 0):.6f}")
+                    else:
+                        logger.info(f"[Search]    {i}. product_id={p['product_id']}, score={p['score']:.6f}")
                     
             else:
                 # FAISS failed or empty - fallback to DB search
@@ -309,9 +506,16 @@ class SearchService:
                 ).order_by(Product.name.asc()).limit(20).all()
                 
                 products = [
-                    {'product_id': p.product_id, 'score': 1.0}
+                    {
+                        'product_id': p.product_id, 
+                        'score': 1.0,
+                        'text_score': None,
+                        'image_score': None,
+                        'combined_score': 1.0
+                    }
                     for p in db_products
                 ]
+                fusion_type_actual = 'db_fallback'
                 db_fallback_duration = (time.time() - start_db) * 1000
                 logger.info(f"[Search] 📂 DB fallback returned {len(products)} products (took {db_fallback_duration:.2f}ms)")
             
@@ -329,7 +533,7 @@ class SearchService:
             db.session.flush()  # Need the search_id before we can save results
             
             logger.info(f"[Search] 🆔 New Search ID: {new_search_query.search_id}")
-            logger.info(f"[Search] 💾 Saving {len(products)} retrieve records...")
+            logger.info(f"[Search] 💾 Saving {len(products)} retrieve records... (fusion_type: {fusion_type_actual})")
             
             # Save each product result with its rank and score
             for rank, product_info in enumerate(products, start=1):
@@ -340,7 +544,11 @@ class SearchService:
                     weight=product_info['score'],
                     textual_model_name=textual_model_used,
                     visual_model_name=visual_model_used,
-                    correction_engine='rawtext'  # No correction applied
+                    correction_engine='rawtext',  # No correction applied
+                    fusion_type=fusion_type_actual,
+                    text_score=product_info.get('text_score'),
+                    image_score=product_info.get('image_score'),
+                    combined_score=product_info.get('combined_score')
                 )
                 db.session.add(retrieve)
             
@@ -418,8 +626,15 @@ class SearchService:
             sql = """
                 SELECT
                     q.corrected_text,
+                    q.raw_text,
                     r.rank,
                     r.weight AS score,
+                    r.text_score,
+                    r.image_score,
+                    r.combined_score,
+                    r.fusion_type,
+                    r.textual_model_name,
+                    r.visual_model_name,
                     p.product_id,
                     p.name,
                     p.price,
@@ -435,7 +650,11 @@ class SearchService:
                 WHERE r.search_id = :search_id
                 GROUP BY
                     q.corrected_text,
+                    q.raw_text,
                     r.rank, r.weight,
+                    r.text_score, r.image_score, r.combined_score,
+                    r.fusion_type,
+                    r.textual_model_name, r.visual_model_name,
                     p.product_id, p.name, p.price,
                     b.name, b.brand_id,
                     r.is_relevant
@@ -456,6 +675,10 @@ class SearchService:
             
             # Build response
             corrected_text = rows[0][0]  # Same for all rows
+            raw_text = rows[0][1]
+            fusion_type = rows[0][8] if rows[0][8] else 'text_only'
+            textual_model = rows[0][9]
+            visual_model = rows[0][10]
             products = []
             
             # Get upload folder path
@@ -463,7 +686,7 @@ class SearchService:
             
             for row in rows:
                 # Convert image paths to base64
-                image_paths = row[8] if row[8] else []
+                image_paths = row[15] if row[15] else []
                 images_base64 = []
                 
                 for img_path in image_paths:
@@ -486,25 +709,39 @@ class SearchService:
                             images_base64.append(f"data:{mimetype};base64,{b64_data}")
                         except Exception as e:
                             logger.warning(f"[Search] Failed to read image {file_path}: {e}")
-                score = float(row[2]) if row[2] else None
+                
+                score = float(row[3]) if row[3] else None
                 if score is not None and score <= 0.465:
                     continue
 
-                products.append({
-                    'product_id': row[3],
-                    'name': row[4],
-                    'price': float(row[5]) if row[5] else None,
-                    'rank': row[1],
-                    'score': float(row[2]) if row[2] else None,
-                    'brand': {'brand_id': row[7], 'name': row[6]} if row[6] else None,
+                product_data = {
+                    'product_id': row[11],
+                    'name': row[12],
+                    'price': float(row[13]) if row[13] else None,
+                    'rank': row[2],
+                    'score': float(row[3]) if row[3] else None,
+                    'brand': {'brand_id': row[16], 'name': row[14]} if row[14] else None,
                     'images': images_base64,
-                    'is_relevant': row[9]
-                })
+                    'is_relevant': row[17]
+                }
+                
+                # Add detailed scores if available (late fusion)
+                if row[4] is not None:  # text_score
+                    product_data['text_score'] = float(row[4])
+                if row[5] is not None:  # image_score
+                    product_data['image_score'] = float(row[5])
+                if row[6] is not None:  # combined_score
+                    product_data['combined_score'] = float(row[6])
+                
+                products.append(product_data)
             
             return {
                 'search_id': search_id,
-                'raw_text': search_query.raw_text,
+                'raw_text': raw_text,
                 'corrected_text': corrected_text,
+                'fusion_type': fusion_type,
+                'textual_model_name': textual_model,
+                'visual_model_name': visual_model,
                 'products': products
             }
             

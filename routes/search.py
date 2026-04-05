@@ -19,10 +19,19 @@ def search():
     The main search endpoint - this is what the frontend calls.
     
     Send us the user's search text (and optionally an image), and we'll:
-    - Fix any typos
-    - Search FAISS for matching products  
+    - Fix any typos (if correction_enabled=true)
+    - Search FAISS for matching products (if semantic_search_enabled=true)
+    - Or do DB ilike search (if semantic_search_enabled=false)  
     - Fall back to database search if needed
     - Save everything for analytics
+    
+    Query Parameters (as form data):
+    - raw_text (required): User's search query
+    - images: Optional image file(s) for visual search
+    - engine: Correction engine to use ('symspell', 'byt5')
+    - correction_enabled: 'true' or 'false' (default: true)
+    - semantic_search_enabled: 'true' or 'false' (default: true)
+    - fusion_type: 'late', 'early', 'text', 'image', 'image_by_text', 'text_by_image'
     
     If raw_text_flag=True and search_id is provided, it will use the raw text
     from the original search to perform a new search without spell correction.
@@ -47,7 +56,18 @@ def search():
         if raw_text_flag and original_search_id:
             print(f"DEBUG [routes/search.py]: Raw text search mode - original_search_id={original_search_id}")
             
-            result = SearchService.execute_rawtext_search(original_search_id, image)
+            # Get toggle settings for raw text search too
+            semantic_enabled = form_data.get('semantic_search_enabled', '').lower() != 'false'
+            fusion_type = form_data.get('fusion_type', 'late')
+            correction_enabled = form_data.get('correction_enabled', '').lower() != 'false'
+            
+            result = SearchService.execute_rawtext_search(
+                original_search_id, 
+                image,
+                semantic_search_enabled=semantic_enabled,
+                fusion_type=fusion_type,
+                correction_enabled=correction_enabled
+            )
             print(f"DEBUG [routes/search.py]: SearchService.execute_rawtext_search returned: {result}")
             
             duration = (time.time() - start_time) * 1000
@@ -69,12 +89,25 @@ def search():
             return jsonify({"error": "'raw_text' cannot be empty"}), 400
 
         engine = form_data.get('engine')
+        
+        # Parse toggle parameters
+        semantic_search_enabled = form_data.get('semantic_search_enabled', '').lower() != 'false'  # default: true
+        correction_enabled = form_data.get('correction_enabled', '').lower() != 'false'  # default: true
+        fusion_type = form_data.get('fusion_type', 'late')  # default: late fusion
 
         print(f"DEBUG [routes/search.py]: Extracted raw_text='{raw_text}', engine='{engine}'")
+        print(f"DEBUG [routes/search.py]: Toggles: semantic={semantic_search_enabled}, correction={correction_enabled}, fusion={fusion_type}")
 
-        # Execute search through service
+        # Execute search through service with toggles
         print("DEBUG [routes/search.py]: Calling SearchService.execute_search...")
-        result = SearchService.execute_search(raw_text, image, engine=engine)
+        result = SearchService.execute_search(
+            raw_text, 
+            image, 
+            engine=engine,
+            semantic_search_enabled=semantic_search_enabled,
+            correction_enabled=correction_enabled,
+            fusion_type=fusion_type
+        )
         print(f"DEBUG [routes/search.py]: SearchService returned: {result}")
         
         # Log total time including Flask overhead

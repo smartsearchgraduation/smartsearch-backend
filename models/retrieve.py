@@ -40,6 +40,14 @@ class Retrieve(db.Model):
     textual_model_name = db.Column(db.String(100), nullable=True)
     visual_model_name = db.Column(db.String(100), nullable=True)
     
+    # Fusion type: text_only, image_only, late_fusion, early_fusion, cross_modal
+    fusion_type = db.Column(db.String(50), nullable=True)
+    
+    # Detailed scores for late fusion
+    text_score = db.Column(db.Float, nullable=True)
+    image_score = db.Column(db.Float, nullable=True)
+    combined_score = db.Column(db.Float, nullable=True)
+    
     # Correction engine tracking - which spell correction engine was used
     correction_engine = db.Column(db.String(50), nullable=True)
     
@@ -73,6 +81,7 @@ class Retrieve(db.Model):
             'product_id': self.product_id,
             'rank': self.rank,
             'weight': self.weight,
+            'score': self.weight,  # alias for frontend
             'explain': self.explain,
             'is_relevant': self.is_relevant,
             'is_clicked': self.is_clicked,
@@ -81,6 +90,10 @@ class Retrieve(db.Model):
             'new_search_id': self.new_search_id,
             'textual_model_name': self.textual_model_name,
             'visual_model_name': self.visual_model_name,
+            'fusion_type': self.fusion_type,
+            'text_score': self.text_score,
+            'image_score': self.image_score,
+            'combined_score': self.combined_score,
             'correction_engine': self.correction_engine
         }
 
