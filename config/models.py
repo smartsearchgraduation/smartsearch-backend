@@ -27,6 +27,7 @@ AVAILABLE_MODELS = {
 # Default model settings
 DEFAULT_TEXTUAL_MODEL = "BAAI/bge-large-en-v1.5"
 DEFAULT_VISUAL_MODEL = "ViT-B/32"
+DEFAULT_FUSION_ENDPOINT = "late"  # 'late' or 'early'
 
 # Model groups for UI organization
 MODEL_GROUPS = {
@@ -92,12 +93,13 @@ def get_selected_models():
     Get currently selected models from config file.
 
     Returns:
-        dict: Selected textual and visual models
+        dict: Selected textual and visual models, and fusion endpoint
 
     Usage:
         models = get_selected_models()
         textual_model = models['textual_model']
         visual_model = models['visual_model']
+        fusion_endpoint = models['fusion_endpoint']  # 'late' or 'early'
     """
     import json
     import os
@@ -106,38 +108,87 @@ def get_selected_models():
 
     try:
         with open(config_path, 'r') as f:
-            return json.load(f)
+            config = json.load(f)
+            # Ensure fusion_endpoint exists (backward compatibility)
+            if 'fusion_endpoint' not in config:
+                config['fusion_endpoint'] = DEFAULT_FUSION_ENDPOINT
+            return config
     except FileNotFoundError:
         # Return defaults if config doesn't exist
         return {
             "textual_model": DEFAULT_TEXTUAL_MODEL,
             "visual_model": DEFAULT_VISUAL_MODEL,
+            "fusion_endpoint": DEFAULT_FUSION_ENDPOINT,
             "last_updated": None
         }
 
 
-def save_selected_models(textual: str, visual: str):
+def get_selected_fusion_endpoint():
+    """
+    Get currently selected fusion endpoint from config file.
+
+    Returns:
+        str: 'late' or 'early'
+
+    Usage:
+        endpoint = get_selected_fusion_endpoint()  # 'late' or 'early'
+    """
+    models = get_selected_models()
+    return models.get('fusion_endpoint', DEFAULT_FUSION_ENDPOINT)
+
+
+def save_selected_models(textual: str, visual: str, fusion_endpoint: str = None):
     """
     Save selected models to config file.
 
     Args:
         textual: Textual model name
         visual: Visual model name
+        fusion_endpoint: Optional fusion endpoint ('late' or 'early')
 
     Usage:
-        save_selected_models('ViT-L/14', 'ViT-L/14')
+        save_selected_models('ViT-L/14', 'ViT-L/14', 'early')
     """
     import json
     import os
     from datetime import datetime
 
     config_path = os.path.join(os.path.dirname(__file__), 'selected_models.json')
-
+    
+    # Get existing config to preserve fusion_endpoint if not provided
+    existing = get_selected_models()
+    
     config = {
         "textual_model": textual,
         "visual_model": visual,
+        "fusion_endpoint": fusion_endpoint or existing.get('fusion_endpoint', DEFAULT_FUSION_ENDPOINT),
         "last_updated": datetime.utcnow().isoformat() + "Z"
     }
 
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=2)
+
+
+def save_selected_fusion_endpoint(fusion_endpoint: str):
+    """
+    Save only the fusion endpoint to config file.
+
+    Args:
+        fusion_endpoint: 'late' or 'early'
+
+    Usage:
+        save_selected_fusion_endpoint('early')
+    """
+    import os
+    
+    models = get_selected_models()
+    save_selected_models(
+        textual=models['textual_model'],
+        visual=models['visual_model'],
+        fusion_endpoint=fusion_endpoint
+    )
+
+
+def is_valid_fusion_endpoint(endpoint: str) -> bool:
+    """Check if a fusion endpoint is valid."""
+    return endpoint in ['late', 'early']

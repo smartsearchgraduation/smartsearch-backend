@@ -31,7 +31,13 @@ def search():
     - engine: Correction engine to use ('symspell', 'byt5')
     - correction_enabled: 'true' or 'false' (default: true)
     - semantic_search_enabled: 'true' or 'false' (default: true)
-    - fusion_type: 'late', 'early', 'text', 'image', 'image_by_text', 'text_by_image'
+    
+    Fusion type (late/early) is determined automatically from FAISS results:
+    - text_only: when only text is provided
+    - image_only: when only image is provided  
+    - late_fusion: when both provided and FAISS returns text_score + image_score
+    - early_fusion: when both provided and FAISS returns combined_score only
+    - db_fallback: when semantic_search_enabled=false or FAISS fails
     
     If raw_text_flag=True and search_id is provided, it will use the raw text
     from the original search to perform a new search without spell correction.
@@ -58,14 +64,12 @@ def search():
             
             # Get toggle settings for raw text search too
             semantic_enabled = form_data.get('semantic_search_enabled', '').lower() != 'false'
-            fusion_type = form_data.get('fusion_type', 'late')
             correction_enabled = form_data.get('correction_enabled', '').lower() != 'false'
             
             result = SearchService.execute_rawtext_search(
                 original_search_id, 
                 image,
                 semantic_search_enabled=semantic_enabled,
-                fusion_type=fusion_type,
                 correction_enabled=correction_enabled
             )
             print(f"DEBUG [routes/search.py]: SearchService.execute_rawtext_search returned: {result}")
@@ -93,10 +97,9 @@ def search():
         # Parse toggle parameters
         semantic_search_enabled = form_data.get('semantic_search_enabled', '').lower() != 'false'  # default: true
         correction_enabled = form_data.get('correction_enabled', '').lower() != 'false'  # default: true
-        fusion_type = form_data.get('fusion_type', 'late')  # default: late fusion
 
         print(f"DEBUG [routes/search.py]: Extracted raw_text='{raw_text}', engine='{engine}'")
-        print(f"DEBUG [routes/search.py]: Toggles: semantic={semantic_search_enabled}, correction={correction_enabled}, fusion={fusion_type}")
+        print(f"DEBUG [routes/search.py]: Toggles: semantic={semantic_search_enabled}, correction={correction_enabled}")
 
         # Execute search through service with toggles
         print("DEBUG [routes/search.py]: Calling SearchService.execute_search...")
@@ -105,8 +108,7 @@ def search():
             image, 
             engine=engine,
             semantic_search_enabled=semantic_search_enabled,
-            correction_enabled=correction_enabled,
-            fusion_type=fusion_type
+            correction_enabled=correction_enabled
         )
         print(f"DEBUG [routes/search.py]: SearchService returned: {result}")
         

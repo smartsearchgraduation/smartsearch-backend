@@ -7,7 +7,11 @@ import os
 import logging
 from flask import Blueprint, request, jsonify, current_app, render_template_string
 from services.faiss_retrieval_service import faiss_service
-from config.models import get_selected_models, save_selected_models, is_valid_model, AVAILABLE_MODELS
+from config.models import (
+    get_selected_models, save_selected_models, 
+    get_selected_fusion_endpoint, save_selected_fusion_endpoint,
+    is_valid_model, AVAILABLE_MODELS, is_valid_fusion_endpoint
+)
 
 logger = logging.getLogger(__name__)
 
@@ -478,13 +482,15 @@ def save_selected_models_endpoint():
     
     Request body:
         - textual_model: Textual embedding model name
-        - visual_model: Visual embedding model name
+        - visual_model: Visual model name
+        - fusion_endpoint: 'late' or 'early' (optional, defaults to current)
     """
     try:
         data = request.get_json() or {}
         
         textual_model = data.get('textual_model')
         visual_model = data.get('visual_model')
+        fusion_endpoint = data.get('fusion_endpoint')  # Optional
         
         # Validate required fields
         if not textual_model or not visual_model:
@@ -506,22 +512,111 @@ def save_selected_models_endpoint():
                 "error": f"Invalid visual model: {visual_model}"
             }), 400
         
-        # Save to config
-        save_selected_models(textual_model, visual_model)
+        # Validate fusion_endpoint if provided
+        if fusion_endpoint and not is_valid_fusion_endpoint(fusion_endpoint):
+            return jsonify({
+                "status": "error",
+                "error": f"Invalid fusion_endpoint: {fusion_endpoint}. Must be 'late' or 'early'"
+            }), 400
         
-        logger.info(f"[Retrieval] Models saved - Textual: {textual_model}, Visual: {visual_model}")
+        # Save to config (with fusion_endpoint)
+        save_selected_models(textual_model, visual_model, fusion_endpoint)
+        
+        logger.info(f"[Retrieval] Models saved - Textual: {textual_model}, Visual: {visual_model}, Fusion: {fusion_endpoint or 'unchanged'}")
         
         return jsonify({
             "status": "success",
             "message": "Models saved successfully",
             "data": {
                 "textual_model": textual_model,
-                "visual_model": visual_model
+                "visual_model": visual_model,
+                "fusion_endpoint": fusion_endpoint or get_selected_fusion_endpoint()
             }
         }), 200
         
     except Exception as e:
         logger.error(f"[Retrieval] Error saving selected models: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
+
+
+@retrieval_bp.route('/fusion-endpoint', methods=['GET'])
+def get_fusion_endpoint():
+    """
+    Get currently selected fusion endpoint (for admin panel).
+    
+    Returns the fusion endpoint ('late' or 'early') that will be used 
+    for text+image searches.
+    """
+    try:
+        endpoint = get_selected_fusion_endpoint()
+        
+        return jsonify({
+            "status": "success",
+            "data": {
+                "fusion_endpoint": endpoint,
+                "description": "Late Fusion" if endpoint == "late" else "Early Fusion (CLIP)"
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[Retrieval] Error getting fusion endpoint: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e)
+        }), 500
+
+
+@retrieval_bp.route('/fusion-endpoint', methods=['POST'])
+def save_fusion_endpoint():
+    """
+    Save selected fusion endpoint (from admin panel).
+    
+    This determines which FAISS endpoint to use when both text and image
+    are provided in a search query:
+    - 'late': Late Fusion (separate embeddings, weighted combination)
+    - 'early': Early Fusion (CLIP, single fused embedding)
+    
+    Request body:
+        - fusion_endpoint: 'late' or 'early'
+    """
+    try:
+        data = request.get_json() or {}
+        
+        fusion_endpoint = data.get('fusion_endpoint')
+        
+        # Validate required fields
+        if not fusion_endpoint:
+            return jsonify({
+                "status": "error",
+                "error": "fusion_endpoint is required"
+            }), 400
+        
+        # Validate endpoint value
+        if not is_valid_fusion_endpoint(fusion_endpoint):
+            return jsonify({
+                "status": "error",
+                "error": f"Invalid fusion_endpoint: {fusion_endpoint}. Must be 'late' or 'early'"
+            }), 400
+        
+        # Save to config
+        save_selected_fusion_endpoint(fusion_endpoint)
+        
+        logger.info(f"[Retrieval] Fusion endpoint saved: {fusion_endpoint}")
+        
+        return jsonify({
+            "status": "success",
+            "message": "Fusion endpoint saved successfully",
+            "data": {
+                "fusion_endpoint": fusion_endpoint,
+                "description": "Late Fusion" if fusion_endpoint == "late" else "Early Fusion (CLIP)"
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"[Retrieval] Error saving fusion endpoint: {e}")
         return jsonify({
             "status": "error",
             "error": str(e)
