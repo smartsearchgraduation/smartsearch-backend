@@ -12,6 +12,7 @@ import mimetypes
 from typing import Dict, Any, List, Optional
 
 from flask import current_app
+from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
 from models import db, SearchQuery, Retrieve, Product, SearchTime
 from .text_corrector_service import text_corrector_service
@@ -218,10 +219,17 @@ class SearchService:
                 # FAISS failed/empty OR semantic search disabled -> DB search
                 logger.info(f"[Search] ⚠️  Using DB search (semantic={semantic_search_enabled}, faiss_success={faiss_success})")
                 start_db = time.time()
-                search_term = f"%{corrected_text}%"
+                search_terms = corrected_text.split()
+                
+                # Build OR conditions for each word in name OR description
+                or_conditions = []
+                for term in search_terms:
+                    search_pattern = f"%{term}%"
+                    or_conditions.append(Product.name.ilike(search_pattern))
+                    or_conditions.append(Product.description.ilike(search_pattern))
                 
                 db_products = Product.query.filter(
-                    Product.name.ilike(search_term)
+                    or_(*or_conditions)
                 ).order_by(Product.name.asc()).limit(20).all()
                 
                 products = [
@@ -481,10 +489,17 @@ class SearchService:
                 # FAISS failed or empty - fallback to DB search
                 logger.info(f"[Search] ⚠️  FAISS unavailable/empty, falling back to DB search")
                 start_db = time.time()
-                search_term = f"%{raw_text}%"
+                search_terms = raw_text.split()
+                
+                # Build OR conditions for each word in name OR description
+                or_conditions = []
+                for term in search_terms:
+                    search_pattern = f"%{term}%"
+                    or_conditions.append(Product.name.ilike(search_pattern))
+                    or_conditions.append(Product.description.ilike(search_pattern))
                 
                 db_products = Product.query.filter(
-                    Product.name.ilike(search_term)
+                    or_(*or_conditions)
                 ).order_by(Product.name.asc()).limit(20).all()
                 
                 products = [
@@ -831,9 +846,17 @@ class SearchService:
             logger.info(f"[Search] ━━━ STEP 2: DATABASE SEARCH ━━━")
             start_search = time.time()
             
-            search_term = f"%{search_text}%"
+            search_terms = search_text.split()
+            
+            # Build OR conditions for each word in name OR description
+            or_conditions = []
+            for term in search_terms:
+                search_pattern = f"%{term}%"
+                or_conditions.append(Product.name.ilike(search_pattern))
+                or_conditions.append(Product.description.ilike(search_pattern))
+            
             db_products = Product.query.filter(
-                Product.name.ilike(search_term)
+                or_(*or_conditions)
             ).options(
                 joinedload(Product.brand),
                 joinedload(Product.images)
