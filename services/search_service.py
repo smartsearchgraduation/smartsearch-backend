@@ -12,6 +12,7 @@ import mimetypes
 from typing import Dict, Any, List, Optional
 
 from flask import current_app
+from sqlalchemy.orm import joinedload
 from models import db, SearchQuery, Retrieve, Product, SearchTime
 from .text_corrector_service import text_corrector_service
 from .faiss_retrieval_service import faiss_service
@@ -790,6 +791,111 @@ class SearchService:
         except Exception as e:
             logger.error(f"[Analytics] ❌ Error updating client metrics: {e}")
             return False
+
+    @staticmethod
+    def execute_db_fallback_search(search_id: int) -> Dict[str, Any]:
+        """
+        Execute a database fallback search using text from an existing search.
+        
+        This endpoint takes a search_id, retrieves the raw_text from that search,
+        performs a simple DB ILIKE search, and returns the first 20 results.
+        Does NOT save anything to the database.
+        
+        Args:
+            search_id: The ID of the search to get text from
+        
+        Returns:
+            A dict with 'products' containing up to 20 results
+        """
+        start_total = time.time()
+        
+        logger.info(f"")
+        logger.info(f"{'='*60}")
+        logger.info(f"[Search] 🔍 DB FALLBACK SEARCH REQUEST")
+        logger.info(f"{'='*60}")
+        logger.info(f"[Search] 🆔 Search ID: {search_id}")
+        
+        try:
+            # Step 1: Retrieve Original Query
+            logger.info(f"")
+            logger.info(f"[Search] ━━━ STEP 1: RETRIEVE SEARCH TEXT ━━━")
+            search_query = SearchQuery.query.get(search_id)
+            if not search_query:
+                raise ValueError(f"Search with id {search_id} not found")
+            
+            search_text = search_query.raw_text
+            logger.info(f"[Search] 📝 Found Text: '{search_text}'")
+            
+            # Step 2: DB Search
+            logger.info(f"")
+            logger.info(f"[Search] ━━━ STEP 2: DATABASE SEARCH ━━━")
+            start_search = time.time()
+            
+            search_term = f"%{search_text}%"
+            db_products = Product.query.filter(
+                Product.name.ilike(search_term)
+            ).options(
+                joinedload(Product.brand),
+                joinedload(Product.images)
+            ).order_by(Product.name.asc()).limit(20).all()
+            
+            search_duration = (time.time() - start_search) * 1000
+            
+            # Get upload folder path for images
+            upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/products')
+            
+            products = []
+            for p in db_products:
+                # Convert image paths to base64
+                images_base64 = []
+                for img in p.images:
+                    filename = os.path.basename(img.url)
+                    file_path = os.path.join(upload_folder, filename)
+                    
+                    if os.path.exists(file_path):
+                        try:
+                            with open(file_path, 'rb') as f:
+                                img_data = f.read()
+                            
+                            mimetype, _ = mimetypes.guess_type(file_path)
+                            if not mimetype:
+                                mimetype = 'image/jpeg'
+                            
+                            b64_data = base64.b64encode(img_data).decode('utf-8')
+                            images_base64.append(f"data:{mimetype};base64,{b64_data}")
+                        except Exception as e:
+                            logger.warning(f"[DB Fallback] Failed to read image {file_path}: {e}")
+                
+                products.append({
+                    'product_id': p.product_id,
+                    'name': p.name,
+                    'price': float(p.price) if p.price else None,
+                    'score': 1.0,
+                    'brand': {'brand_id': p.brand.brand_id, 'name': p.brand.name} if p.brand else None,
+                    'images': images_base64
+                })
+            
+            logger.info(f"[Search] 📂 DB returned {len(products)} products (took {search_duration:.2f}ms)")
+            
+            total_duration = (time.time() - start_total) * 1000
+            
+            # Final Summary
+            logger.info(f"")
+            logger.info(f"[Search] ━━━ DB FALLBACK COMPLETE ━━━")
+            logger.info(f"[Search] 📦 Total Products: {len(products)}")
+            logger.info(f"[Search] ⏱️  Total Time: {total_duration:.2f}ms")
+            logger.info(f"{'='*60}")
+            
+            return {
+                'original_search_id': search_id,
+                'search_text': search_text,
+                'products': products
+            }
+            
+        except Exception as e:
+            total_duration = (time.time() - start_total) * 1000
+            logger.error(f"[Search] ❌ Error executing DB fallback search: {e} (failed after {total_duration:.2f}ms)")
+            raise
 
     @staticmethod
     def get_metrics() -> Dict[str, Any]:
