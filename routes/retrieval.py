@@ -93,6 +93,172 @@ def search_late_fusion():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
+@retrieval_bp.route('/search/early', methods=['POST'])
+def search_early_fusion():
+    """
+    Search using early fusion of text and image into a single embedding.
+    
+    Both text and image are fused into a single query embedding using CLIP's 
+    shared embedding space, then searches the Fused index.
+    
+    Request body:
+        - text: Search query text (required)
+        - image: Path to image file (required)
+        - fused_model_name: CLIP model to use (default: ViT-B/32)
+        - text_weight: Weight for text vs image (0.5 = equal, optional)
+        - top_k: Number of results (default: 10)
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "error": "Request body is required"}), 400
+            
+        text = data.get('text')
+        image = data.get('image')
+        
+        if not text or not text.strip():
+            return jsonify({"status": "error", "error": "Missing required field: text"}), 400
+            
+        if not image:
+            return jsonify({"status": "error", "error": "Missing required field: image"}), 400
+            
+        result = faiss_service.search_early_fusion(
+            text=text,
+            image_path=image,
+            text_weight=data.get('text_weight', 0.5),
+            fused_model_name=data.get('fused_model_name', 'ViT-B/32'),
+            top_k=data.get('top_k', 10)
+        )
+        
+        if result.get('status') == 'error':
+            return jsonify(result), 500
+            
+        return jsonify(result), 200
+        
+    except Exception as e:
+        logger.error(f"[Retrieval] Early fusion search error: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@retrieval_bp.route('/search/image', methods=['POST'])
+def search_image():
+    """
+    Search for products using only an image (image-only search).
+    
+    Encodes the query image and searches the visual index to find
+    visually similar products.
+    
+    Request body:
+        - image: Path to image file (required)
+        - visual_model_name: Which embedding model to use (default: ViT-B/32)
+        - top_k: Number of results (default: 10)
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "error": "Request body is required"}), 400
+            
+        image = data.get('image')
+        
+        if not image:
+            return jsonify({"status": "error", "error": "Missing required field: image"}), 400
+            
+        result = faiss_service.search_image(
+            image_path=image,
+            visual_model_name=data.get('visual_model_name', 'ViT-B/32'),
+            top_k=data.get('top_k', 10)
+        )
+        
+        if result.get('status') == 'error':
+            return jsonify(result), 500
+            
+        return jsonify(result), 200
+        
+    except Exception as e:
+        logger.error(f"[Retrieval] Image search error: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@retrieval_bp.route('/search/image-by-text', methods=['POST'])
+def search_image_by_text():
+    """
+    Cross-modal search: Find product images using a text query.
+    
+    Encodes the text with CLIP's text encoder and searches the Visual index.
+    Only CLIP models are supported since both modalities must share the 
+    same embedding space.
+    
+    Request body:
+        - text: Search query text (required)
+        - visual_model_name: CLIP model to use (default: ViT-B/32)
+        - top_k: Number of results (default: 10)
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "error": "Request body is required"}), 400
+            
+        text = data.get('text')
+        
+        if not text or not text.strip():
+            return jsonify({"status": "error", "error": "Missing required field: text"}), 400
+            
+        result = faiss_service.search_image_by_text(
+            text=text,
+            visual_model_name=data.get('visual_model_name', 'ViT-B/32'),
+            top_k=data.get('top_k', 10)
+        )
+        
+        if result.get('status') == 'error':
+            return jsonify(result), 500
+            
+        return jsonify(result), 200
+        
+    except Exception as e:
+        logger.error(f"[Retrieval] Image-by-text search error: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@retrieval_bp.route('/search/text-by-image', methods=['POST'])
+def search_text_by_image():
+    """
+    Cross-modal search: Find product text descriptions using an image query.
+    
+    Encodes the image with CLIP's image encoder and searches the Textual index.
+    Only CLIP models are supported since both modalities must share the 
+    same embedding space.
+    
+    Request body:
+        - image: Path to image file (required)
+        - textual_model_name: CLIP model to use (default: ViT-B/32)
+        - top_k: Number of results (default: 10)
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "error", "error": "Request body is required"}), 400
+            
+        image = data.get('image')
+        
+        if not image:
+            return jsonify({"status": "error", "error": "Missing required field: image"}), 400
+            
+        result = faiss_service.search_text_by_image(
+            image_path=image,
+            textual_model_name=data.get('textual_model_name', 'ViT-B/32'),
+            top_k=data.get('top_k', 10)
+        )
+        
+        if result.get('status') == 'error':
+            return jsonify(result), 500
+            
+        return jsonify(result), 200
+        
+    except Exception as e:
+        logger.error(f"[Retrieval] Text-by-image search error: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
 @retrieval_bp.route('/add-product', methods=['POST'])
 def add_product():
     """
@@ -623,24 +789,28 @@ def save_fusion_endpoint():
         }), 500
 
 
-@retrieval_bp.route('/selected-models/save-and-rebuild', methods=['POST'])
+@retrieval_bp.route('/selected-models/save-and-rebuild', methods=['GET', 'POST'])
 def save_and_rebuild():
     """
-    Save selected models and rebuild FAISS index.
+    Save selected models and rebuild FAISS index (POST), or get current settings (GET).
     
-    This endpoint is called from the admin panel when user clicks "Save" button.
-    It performs the following workflow:
-    1. Saves the selected textual and visual models
-    2. Clears the FAISS index via DELETE /api/retrieval/clear-index
-    3. Waits 60 seconds for FAISS initialization
-    4. Adds all products from database one by one
-    5. Saves the models to retrieval config
+    GET: Returns current selected models without any changes.
     
-    Request body:
-        - textual_model: Textual embedding model name
-        - visual_model: Visual embedding model name
-        - fusion_endpoint: 'late' or 'early' (optional, defaults to current)
-        - wait_duration_seconds: How long to wait after clear (default: 60)
+    POST: Rebuilds FAISS index with current or specified settings.
+    If models not specified in request, uses previously saved values.
+    
+    Workflow:
+    1. Gets current saved models (or uses request values if provided)
+    2. Saves to config (updates fusion_endpoint if provided)
+    3. Clears FAISS index
+    4. Waits for FAISS initialization
+    5. Adds all products from database
+    
+    POST Request body (all optional):
+        - textual_model: Textual embedding model (defaults to saved)
+        - visual_model: Visual embedding model (defaults to saved)
+        - fusion_endpoint: 'late' or 'early' (defaults to saved)
+        - wait_duration_seconds: Seconds to wait after clear (default: 60)
     """
     import time
     from models import db
@@ -648,21 +818,38 @@ def save_and_rebuild():
     from models.product_image import ProductImage
     from sqlalchemy.orm import joinedload
     
+    # GET: Return current settings without rebuilding
+    if request.method == 'GET':
+        models = get_selected_models()
+        return jsonify({
+            "status": "success",
+            "data": models
+        }), 200
+    
     start_time = time.time()
     
     try:
         data = request.get_json() or {}
         
-        textual_model = data.get('textual_model')
-        visual_model = data.get('visual_model')
-        fusion_endpoint = data.get('fusion_endpoint')  # Optional
+        # Get current saved models as defaults
+        current_models = get_selected_models()
+        
+        # Use request values if provided, otherwise use saved values
+        textual_model = data.get('textual_model') or current_models.get('textual_model')
+        visual_model = data.get('visual_model') or current_models.get('visual_model')
+        fusion_endpoint = data.get('fusion_endpoint')  # Optional - None means keep current
         wait_duration_seconds = data.get('wait_duration_seconds', 60)
         
-        # Validate required fields
+        # DEBUG: Log incoming request
+        logger.info(f"[Rebuild] 📥 Request received: {data}")
+        logger.info(f"[Rebuild] 🔧 Parsed - Textual: {textual_model}, Visual: {visual_model}, Fusion: {fusion_endpoint}")
+        logger.info(f"[Rebuild] 💾 Current saved models: {current_models}")
+        
+        # Validate required fields (should always have defaults from config)
         if not textual_model or not visual_model:
             return jsonify({
                 "status": "error",
-                "error": "Both textual_model and visual_model are required"
+                "error": "No models configured. Please select models first."
             }), 400
         
         # Validate model names
@@ -688,10 +875,11 @@ def save_and_rebuild():
         # Step 1: Save models to config
         logger.info(
             f"[Rebuild] Step 1/3: Saving models - Textual: {textual_model}, "
-            f"Visual: {visual_model}, Fusion: {fusion_endpoint or 'unchanged'}"
+            f"Visual: {visual_model}, Fusion: {fusion_endpoint or 'unchanged (will use existing)'}"
         )
         save_selected_models(textual_model, visual_model, fusion_endpoint)
         effective_fusion_endpoint = get_selected_fusion_endpoint()
+        logger.info(f"[Rebuild] ✅ Saved! Effective fusion endpoint: {effective_fusion_endpoint}")
         
         # Step 2: Clear FAISS index
         logger.info(f"[Rebuild] Step 2/3: Clearing FAISS index")

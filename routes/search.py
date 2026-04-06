@@ -6,10 +6,13 @@ import logging
 import time
 import os
 import uuid
+import base64
+import re
 from flask import Blueprint, request, jsonify, current_app
 
 from models import db
 from services.search_service import SearchService
+from config.models import get_selected_fusion_endpoint
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +55,66 @@ def save_search_image(file):
         raise ValueError(f"Image processing failed: {str(e)}")
 
 
+def save_base64_image(base64_data):
+    """
+    Save base64 encoded image to file and return the path.
+    
+    Supports data URI format (data:image/jpeg;base64,/9j/4AAQ...) 
+    or raw base64 string.
+    """
+    if not base64_data:
+        return None
+    
+    try:
+        # Handle data URI format
+        if base64_data.startswith('data:'):
+            # Extract mime type and base64 data
+            match = re.match(r'data:([^;]+);base64,(.+)', base64_data)
+            if match:
+                mime_type = match.group(1)
+                base64_content = match.group(2)
+                
+                # Map mime type to extension
+                mime_to_ext = {
+                    'image/jpeg': '.jpg',
+                    'image/jpg': '.jpg',
+                    'image/png': '.png',
+                    'image/gif': '.gif',
+                    'image/webp': '.webp',
+                    'image/bmp': '.bmp'
+                }
+                ext = mime_to_ext.get(mime_type, '.jpg')
+            else:
+                ext = '.jpg'
+                base64_content = base64_data.split(',')[-1]
+        else:
+            ext = '.jpg'
+            base64_content = base64_data
+        
+        # Decode base64
+        image_data = base64.b64decode(base64_content)
+        
+        # Save to file
+        filename = f"search_{uuid.uuid4().hex}{ext}"
+        upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads/products")
+        os.makedirs(upload_folder, exist_ok=True)
+        file_path = os.path.join(upload_folder, filename)
+        
+        with open(file_path, 'wb') as f:
+            f.write(image_data)
+        
+        # Verify
+        if not os.path.exists(file_path):
+            raise OSError("File save failed - file not found after save")
+        
+        logger.info(f"[Search] Base64 image saved to: {file_path}")
+        return file_path
+        
+    except Exception as e:
+        logger.error(f"[Search] Failed to save base64 image: {e}")
+        raise ValueError(f"Base64 image processing failed: {str(e)}")
+
+
 @search_bp.route("/search", methods=["POST"])
 def search():
     """
@@ -69,34 +132,50 @@ def search():
     - engine: Correction engine to use ('symspell', 'byt5')
     - correction_enabled: 'true' or 'false' (default: true)
 
-    Fusion type (late/early) is determined automatically from FAISS results:
+    Fusion type (late/early) is determined from saved config:
     - text_only: when only text is provided
-    - image_only: when only image is provided
-    - late_fusion: when both provided and FAISS returns text_score + image_score
-    - early_fusion: when both provided and FAISS returns combined_score only
+    - image_only: when only image is provided  
+    - late_fusion: when both provided and fusion_endpoint='late'
+    - early_fusion: when both provided and fusion_endpoint='early' (TODO: base64 not supported yet)
     - db_fallback: when FAISS fails
 
     Returns a search_id you can use with GET /search/<id> to fetch results.
     """
     start_time = time.time()
     try:
+        # Check fusion endpoint setting
+        fusion_endpoint = get_selected_fusion_endpoint()
+        logger.info(f"[Search Route] ⚙️ Configured fusion endpoint: {fusion_endpoint}")
+        
         # Get all form data
         form_data = request.form.to_dict()
         images = request.files.getlist("images")
         image_file = images[0] if len(images) > 0 else None
-
-        # TODO: QUICK FIX - Convert FileStorage to file path for FAISS compatibility
-        # This should be replaced with proper image management in the future
-        try:
-            image = save_search_image(image_file) if image_file else None
-        except ValueError as e:
-            logger.error(f"[Search] Image validation error: {e}")
-            return jsonify({"error": str(e)}), 400
+        
+        # Check for base64 image in form data
+        base64_image = form_data.get("image_base64")
+        
+        image = None
+        
+        # Handle file upload
+        if image_file:
+            try:
+                image = save_search_image(image_file)
+                logger.info(f"[Search Route] Image saved from file upload: {image}")
+            except ValueError as e:
+                logger.error(f"[Search] Image validation error: {e}")
+                return jsonify({"error": str(e)}), 400
+        
+        # Handle base64 image
+        elif base64_image:
+            try:
+                image = save_base64_image(base64_image)
+                logger.info(f"[Search Route] Image saved from base64: {image}")
+            except ValueError as e:
+                logger.error(f"[Search] Base64 image validation error: {e}")
+                return jsonify({"error": str(e)}), 400
 
         print(f"DEBUG [routes/search.py]: Received form data: {form_data}")
-        print(f"DEBUG [routes/search.py]: Images: {images}")
-        if image_file:
-            print(f"DEBUG [routes/search.py]: Saved search image to: {image}")
 
         # Validate raw_text
         raw_text = form_data.get("raw_text")
