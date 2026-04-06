@@ -19,6 +19,54 @@ from .text_corrector_service import text_corrector_service
 from .faiss_retrieval_service import faiss_service
 from config.models import get_selected_fusion_endpoint, get_selected_models
 
+try:
+    from PIL import Image
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
+def convert_to_jpg(image_path: str) -> str:
+    """
+    Convert any image to JPG format for early fusion.
+    Returns path to the converted JPG file.
+    """
+    if not HAS_PIL:
+        return image_path
+    
+    try:
+        # Check if already JPG
+        ext = os.path.splitext(image_path)[1].lower()
+        if ext in ['.jpg', '.jpeg']:
+            return image_path
+        
+        # Open image and convert to RGB (required for JPG)
+        with Image.open(image_path) as img:
+            # Convert to RGB if necessary (handles PNG with alpha, etc.)
+            if img.mode in ('RGBA', 'LA', 'P'):
+                rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                if img.mode in ('RGBA', 'LA'):
+                    rgb_img.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                else:
+                    rgb_img.paste(img)
+                img = rgb_img
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # Create new path with .jpg extension
+            base_path = os.path.splitext(image_path)[0]
+            jpg_path = f"{base_path}_converted.jpg"
+            
+            # Save as JPG with high quality
+            img.save(jpg_path, 'JPEG', quality=95)
+            
+            logger.info(f"[Search] Converted image to JPG: {jpg_path}")
+            return jpg_path
+    except Exception as e:
+        logger.warning(f"[Search] Failed to convert image to JPG: {e}, using original")
+        return image_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -120,9 +168,11 @@ class SearchService:
                     if configured_fusion == 'early':
                         fusion_type_actual = 'early_fusion'
                         logger.info(f"[Search] 🔀 Using Early Fusion (configured)")
+                        # Convert image to JPG for early fusion
+                        jpg_image = convert_to_jpg(image)
                         faiss_result = faiss_service.search_early_fusion(
                             text=corrected_text,
-                            image_path=image,
+                            image_path=jpg_image,
                             fused_model_name=configured_visual_model,
                             top_k=10
                         )
