@@ -164,6 +164,7 @@ class SearchService:
                 faiss_products = []
                 textual_model_used = None
                 visual_model_used = None
+                fusion_type_actual = 'text_only'
             
             search_duration = (time.time() - start_search) * 1000
             
@@ -180,7 +181,7 @@ class SearchService:
             
             # fusion_type_actual is already set from Step 2 based on search type
             # It will be one of: 'text_only', 'image_only', 'late_fusion', 'early_fusion'
-            # If DB fallback occurs, it will be set to 'db_fallback' below
+            # If DB fallback occurs, it keeps the original fusion type
             
             if semantic_search_enabled and faiss_success:
                 logger.info(f"[Search] ✅ Using FAISS results")
@@ -216,40 +217,9 @@ class SearchService:
                     else:
                         logger.info(f"[Search]    {i}. product_id={p['product_id']}, score={p['score']:.6f}")
             else:
-                # FAISS failed/empty OR semantic search disabled -> DB search
-                logger.info(f"[Search] ⚠️  Using DB search (semantic={semantic_search_enabled}, faiss_success={faiss_success})")
-                start_db = time.time()
-                search_terms = corrected_text.split()
-                
-                # Build AND conditions across terms, OR within each term (name OR description)
-                and_conditions = []
-                for term in search_terms:
-                    search_pattern = f"%{term}%"
-                    # For each term, it can match name OR description
-                    term_condition = or_(
-                        Product.name.ilike(search_pattern),
-                        Product.description.ilike(search_pattern)
-                    )
-                    and_conditions.append(term_condition)
-                
-                # All terms must match (AND between terms)
-                db_products = Product.query.filter(
-                    and_(*and_conditions)
-                ).order_by(Product.name.asc()).limit(20).all()
-                
-                products = [
-                    {
-                        'product_id': p.product_id, 
-                        'score': 1.0,
-                        'text_score': None,
-                        'image_score': None,
-                        'combined_score': 1.0
-                    }
-                    for p in db_products
-                ]
-                fusion_type_actual = 'db_fallback'
-                db_duration = (time.time() - start_db) * 1000
-                logger.info(f"[Search] 📂 DB returned {len(products)} products (took {db_duration:.2f}ms)")
+                # FAISS failed/empty -> Return empty results (no DB fallback)
+                logger.info(f"[Search] ⚠️  FAISS returned empty, no DB fallback (semantic={semantic_search_enabled})")
+                products = []
             
             # Step 4: Save to Database
             logger.info(f"")
@@ -447,6 +417,7 @@ class SearchService:
                 faiss_success = False
                 faiss_result = {}
                 faiss_products = []
+                fusion_type_actual = 'text_only'
             
             search_duration = (time.time() - start_search) * 1000
 
@@ -491,40 +462,9 @@ class SearchService:
                         logger.info(f"[Search]    {i}. product_id={p['product_id']}, score={p['score']:.6f}")
                     
             else:
-                # FAISS failed or empty - fallback to DB search
-                logger.info(f"[Search] ⚠️  FAISS unavailable/empty, falling back to DB search")
-                start_db = time.time()
-                search_terms = raw_text.split()
-                
-                # Build AND conditions across terms, OR within each term (name OR description)
-                and_conditions = []
-                for term in search_terms:
-                    search_pattern = f"%{term}%"
-                    # For each term, it can match name OR description
-                    term_condition = or_(
-                        Product.name.ilike(search_pattern),
-                        Product.description.ilike(search_pattern)
-                    )
-                    and_conditions.append(term_condition)
-                
-                # All terms must match (AND between terms)
-                db_products = Product.query.filter(
-                    and_(*and_conditions)
-                ).order_by(Product.name.asc()).limit(20).all()
-                
-                products = [
-                    {
-                        'product_id': p.product_id, 
-                        'score': 1.0,
-                        'text_score': None,
-                        'image_score': None,
-                        'combined_score': 1.0
-                    }
-                    for p in db_products
-                ]
-                fusion_type_actual = 'db_fallback'
-                db_fallback_duration = (time.time() - start_db) * 1000
-                logger.info(f"[Search] 📂 DB fallback returned {len(products)} products (took {db_fallback_duration:.2f}ms)")
+                # FAISS failed or empty -> Return empty results (no DB fallback)
+                logger.info(f"[Search] ⚠️  FAISS returned empty, no DB fallback (semantic={semantic_search_enabled})")
+                products = []
             
             # Step 3: Save to Database
             logger.info(f"")
