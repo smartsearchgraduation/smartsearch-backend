@@ -20,8 +20,7 @@ def search():
     
     Send us the user's search text (and optionally an image), and we'll:
     - Fix any typos (if correction_enabled=true)
-    - Search FAISS for matching products (if semantic_search_enabled=true)
-    - Or do DB ilike search (if semantic_search_enabled=false)  
+    - Search FAISS for matching products
     - Fall back to database search if needed
     - Save everything for analytics
     
@@ -30,17 +29,13 @@ def search():
     - images: Optional image file(s) for visual search
     - engine: Correction engine to use ('symspell', 'byt5')
     - correction_enabled: 'true' or 'false' (default: true)
-    - semantic_search_enabled: 'true' or 'false' (default: true)
     
     Fusion type (late/early) is determined automatically from FAISS results:
     - text_only: when only text is provided
     - image_only: when only image is provided  
     - late_fusion: when both provided and FAISS returns text_score + image_score
     - early_fusion: when both provided and FAISS returns combined_score only
-    - db_fallback: when semantic_search_enabled=false or FAISS fails
-    
-    If raw_text_flag=True and search_id is provided, it will use the raw text
-    from the original search to perform a new search without spell correction.
+    - db_fallback: when FAISS fails
     
     Returns a search_id you can use with GET /search/<id> to fetch results.
     """
@@ -53,34 +48,6 @@ def search():
         
         print(f"DEBUG [routes/search.py]: Received form data: {form_data}")
         print(f"DEBUG [routes/search.py]: Images: {images}")
-
-        # Check if this is a raw text search request
-        raw_text_flag = form_data.get('raw_text_flag', '').lower() == 'true'
-        original_search_id = form_data.get('search_id')
-        
-        # If raw_text_flag is True and search_id is provided, use raw text search
-        if raw_text_flag and original_search_id:
-            print(f"DEBUG [routes/search.py]: Raw text search mode - original_search_id={original_search_id}")
-            
-            # Get toggle settings for raw text search too
-            semantic_enabled = form_data.get('semantic_search_enabled', '').lower() != 'false'
-            correction_enabled = form_data.get('correction_enabled', '').lower() != 'false'
-            
-            result = SearchService.execute_rawtext_search(
-                original_search_id, 
-                image,
-                semantic_search_enabled=semantic_enabled,
-                correction_enabled=correction_enabled
-            )
-            print(f"DEBUG [routes/search.py]: SearchService.execute_rawtext_search returned: {result}")
-            
-            duration = (time.time() - start_time) * 1000
-            logger.info(f"[Search Route] 🏁 Total Request Time (incl. Flask): {duration:.2f}ms")
-            
-            return jsonify({
-                'search_id': result['new_search_id'],
-                'original_search_id': result['original_search_id']
-            }), 201
 
         # Validate raw_text
         raw_text = form_data.get('raw_text')
@@ -95,11 +62,10 @@ def search():
         engine = form_data.get('engine')
         
         # Parse toggle parameters
-        semantic_search_enabled = form_data.get('semantic_search_enabled', '').lower() != 'false'  # default: true
         correction_enabled = form_data.get('correction_enabled', '').lower() != 'false'  # default: true
 
         print(f"DEBUG [routes/search.py]: Extracted raw_text='{raw_text}', engine='{engine}'")
-        print(f"DEBUG [routes/search.py]: Toggles: semantic={semantic_search_enabled}, correction={correction_enabled}")
+        print(f"DEBUG [routes/search.py]: Toggles: correction={correction_enabled}")
 
         # Execute search through service with toggles
         print("DEBUG [routes/search.py]: Calling SearchService.execute_search...")
@@ -107,7 +73,7 @@ def search():
             raw_text, 
             image, 
             engine=engine,
-            semantic_search_enabled=semantic_search_enabled,
+            semantic_search_enabled=True,  # Always true
             correction_enabled=correction_enabled
         )
         print(f"DEBUG [routes/search.py]: SearchService returned: {result}")
@@ -147,4 +113,50 @@ def get_search(search_id):
     
     except Exception as e:
         logger.error(f"[Search] Unexpected error getting search {search_id}: {e}")
+        return jsonify({"error": "An unexpected error occurred"}), 500
+
+
+@search_bp.route('/search/db-fallback', methods=['POST'])
+def db_fallback_search():
+    """
+    DB fallback endpoint - performs database search using text from an existing search.
+    
+    Takes a search_id, retrieves the original text, performs a simple DB ILIKE search
+    on product names, and returns the first 20 matching products.
+    Does NOT save anything to the database.
+    
+    Request Body (JSON):
+        - search_id (required): The ID of the search to get text from
+    
+    Returns:
+        - original_search_id: The search_id that was provided
+        - search_text: The text that was used for search
+        - products: Array of up to 20 products with product_id, name, price, score
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Request body is required"}), 400
+        
+        search_id = data.get('search_id')
+        if not search_id:
+            return jsonify({"error": "Missing required field: search_id"}), 400
+        
+        # Validate search_id is an integer
+        try:
+            search_id = int(search_id)
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid search_id, must be an integer"}), 400
+        
+        logger.info(f"[Search Route] DB fallback request for search_id={search_id}")
+        
+        result = SearchService.execute_db_fallback_search(search_id)
+        
+        return jsonify(result), 200
+        
+    except ValueError as e:
+        logger.error(f"[Search] Value error in DB fallback: {e}")
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        logger.error(f"[Search] Unexpected error in DB fallback: {e}")
         return jsonify({"error": "An unexpected error occurred"}), 500

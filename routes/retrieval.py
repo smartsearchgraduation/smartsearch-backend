@@ -639,6 +639,7 @@ def save_and_rebuild():
     Request body:
         - textual_model: Textual embedding model name
         - visual_model: Visual embedding model name
+        - fusion_endpoint: 'late' or 'early' (optional, defaults to current)
         - wait_duration_seconds: How long to wait after clear (default: 60)
     """
     import time
@@ -654,6 +655,7 @@ def save_and_rebuild():
         
         textual_model = data.get('textual_model')
         visual_model = data.get('visual_model')
+        fusion_endpoint = data.get('fusion_endpoint')  # Optional
         wait_duration_seconds = data.get('wait_duration_seconds', 60)
         
         # Validate required fields
@@ -675,10 +677,21 @@ def save_and_rebuild():
                 "status": "error",
                 "error": f"Invalid visual model: {visual_model}. Available: {list(AVAILABLE_MODELS.keys())}"
             }), 400
+
+        # Validate fusion_endpoint if provided
+        if fusion_endpoint and not is_valid_fusion_endpoint(fusion_endpoint):
+            return jsonify({
+                "status": "error",
+                "error": f"Invalid fusion_endpoint: {fusion_endpoint}. Must be 'late' or 'early'"
+            }), 400
         
         # Step 1: Save models to config
-        logger.info(f"[Rebuild] Step 1/3: Saving models - Textual: {textual_model}, Visual: {visual_model}")
-        save_selected_models(textual_model, visual_model)
+        logger.info(
+            f"[Rebuild] Step 1/3: Saving models - Textual: {textual_model}, "
+            f"Visual: {visual_model}, Fusion: {fusion_endpoint or 'unchanged'}"
+        )
+        save_selected_models(textual_model, visual_model, fusion_endpoint)
+        effective_fusion_endpoint = get_selected_fusion_endpoint()
         
         # Step 2: Clear FAISS index
         logger.info(f"[Rebuild] Step 2/3: Clearing FAISS index")
@@ -766,6 +779,7 @@ def save_and_rebuild():
             "data": {
                 "textual_model": textual_model,
                 "visual_model": visual_model,
+                "fusion_endpoint": effective_fusion_endpoint,
                 "total_products": total_products,
                 "successful_count": successful_count,
                 "failed_count": failed_count,
