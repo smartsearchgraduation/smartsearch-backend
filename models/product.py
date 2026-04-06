@@ -25,7 +25,7 @@ class Product(db.Model):
     
     # Relationships
     brand = db.relationship('Brand', back_populates='products')
-    images = db.relationship('ProductImage', back_populates='product', lazy='dynamic', cascade='all, delete-orphan')
+    images = db.relationship('ProductImage', back_populates='product', lazy='select', cascade='all, delete-orphan')
     categories = db.relationship(
         'Category',
         secondary='product_category',

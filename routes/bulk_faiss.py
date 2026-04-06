@@ -3,17 +3,26 @@ API routes for bulk FAISS operations.
 Provides endpoints to add all products from the database to FAISS index
 and a simple web UI to trigger this operation.
 """
+
 import os
 import logging
 from flask import Blueprint, request, jsonify, render_template_string, current_app
 from models import db
 from models.product import Product
+from models.product_image import ProductImage
+from sqlalchemy.orm import joinedload
 from services.faiss_retrieval_service import faiss_service
-from config.models import AVAILABLE_MODELS, DEFAULT_TEXTUAL_MODEL, DEFAULT_VISUAL_MODEL, is_valid_model, get_selected_models
+from config.models import (
+    AVAILABLE_MODELS,
+    DEFAULT_TEXTUAL_MODEL,
+    DEFAULT_VISUAL_MODEL,
+    is_valid_model,
+    get_selected_models,
+)
 
 logger = logging.getLogger(__name__)
 
-bulk_faiss_bp = Blueprint('bulk_faiss', __name__, url_prefix='/api/bulk-faiss')
+bulk_faiss_bp = Blueprint("bulk_faiss", __name__, url_prefix="/api/bulk-faiss")
 
 
 # HTML template for the bulk import page
@@ -511,7 +520,7 @@ BULK_IMPORT_PAGE = """
 """
 
 
-@bulk_faiss_bp.route('/', methods=['GET'])
+@bulk_faiss_bp.route("/", methods=["GET"])
 def bulk_import_page():
     """
     Render the bulk import web page.
@@ -523,21 +532,21 @@ def bulk_import_page():
     for model_id, display_name in AVAILABLE_MODELS.items():
         selected = " selected" if model_id == DEFAULT_TEXTUAL_MODEL else ""
         textual_options += f'<option value="{model_id}"{selected}>{display_name}</option>\n                    '
-    
+
     # Generate HTML options for visual model dropdown
     visual_options = ""
     for model_id, display_name in AVAILABLE_MODELS.items():
         selected = " selected" if model_id == DEFAULT_VISUAL_MODEL else ""
         visual_options += f'<option value="{model_id}"{selected}>{display_name}</option>\n                    '
-    
+
     # Render template with model options
     rendered_html = BULK_IMPORT_PAGE.replace("{{ textual_options }}", textual_options)
     rendered_html = rendered_html.replace("{{ visual_options }}", visual_options)
-    
+
     return render_template_string(rendered_html)
 
 
-@bulk_faiss_bp.route('/models', methods=['GET'])
+@bulk_faiss_bp.route("/models", methods=["GET"])
 def get_models():
     """
     Get available models for FAISS embeddings.
@@ -545,58 +554,62 @@ def get_models():
     Format matches FAISS service response: {name, dimension}
     """
     from config.models import get_model_info
-    
-    models = [
-        get_model_info(model_id)
-        for model_id in AVAILABLE_MODELS.keys()
-    ]
-    
-    return jsonify({
-        'models': models,
-        'defaults': {
-            'textual': DEFAULT_TEXTUAL_MODEL,
-            'visual': DEFAULT_VISUAL_MODEL
+
+    models = [get_model_info(model_id) for model_id in AVAILABLE_MODELS.keys()]
+
+    return jsonify(
+        {
+            "models": models,
+            "defaults": {
+                "textual": DEFAULT_TEXTUAL_MODEL,
+                "visual": DEFAULT_VISUAL_MODEL,
+            },
         }
-    }), 200
+    ), 200
 
 
-@bulk_faiss_bp.route('/stats', methods=['GET'])
+@bulk_faiss_bp.route("/stats", methods=["GET"])
 def get_stats():
     """
     Get statistics about products and FAISS availability.
     """
     try:
         from models.product_image import ProductImage
-        
+
         total_products = Product.query.count()
         total_images = ProductImage.query.count()
-        
+
         # Check FAISS availability by doing a simple test
         faiss_available = False
         try:
             import requests
-            response = requests.get('http://localhost:5002/health', timeout=3)
+
+            response = requests.get("http://localhost:5002/health", timeout=3)
             faiss_available = response.status_code == 200
         except:
             faiss_available = False
-        
-        return jsonify({
-            'total_products': total_products,
-            'total_images': total_images,
-            'faiss_available': faiss_available
-        }), 200
-        
+
+        return jsonify(
+            {
+                "total_products": total_products,
+                "total_images": total_images,
+                "faiss_available": faiss_available,
+            }
+        ), 200
+
     except Exception as e:
         logger.error(f"[BulkFAISS] Stats error: {e}")
-        return jsonify({
-            'total_products': 0,
-            'total_images': 0,
-            'faiss_available': False,
-            'error': str(e)
-        }), 500
+        return jsonify(
+            {
+                "total_products": 0,
+                "total_images": 0,
+                "faiss_available": False,
+                "error": str(e),
+            }
+        ), 500
 
 
-@bulk_faiss_bp.route('/add-all', methods=['POST'])
+@bulk_faiss_bp.route("/add-all", methods=["POST"])
 def add_all_products():
     """
     Add all products from the database to FAISS index.
@@ -613,6 +626,7 @@ def add_all_products():
         - delay_between_products_ms: Delay between each product (default: 0)
     """
     import time
+
     start_time = time.time()
 
     successful_count = 0
@@ -621,80 +635,103 @@ def add_all_products():
 
     # Get configuration from request body
     data = request.get_json() or {}
-    
+
     # Request'te model varsa onu kullan
-    textual_model_name = data.get('textual_model_name')
-    visual_model_name = data.get('visual_model_name')
-    
+    textual_model_name = data.get("textual_model_name")
+    visual_model_name = data.get("visual_model_name")
+
     # Yoksa FAISS service'ten çek
     if not textual_model_name or not visual_model_name:
         faiss_models = faiss_service.get_available_models()
-        if faiss_models.get('status') == 'success':
-            faiss_data = faiss_models.get('data', {})
-            defaults = faiss_data.get('defaults', {})
-            textual_model_name = textual_model_name or defaults.get('textual')
-            visual_model_name = visual_model_name or defaults.get('visual')
-        
+        if faiss_models.get("status") == "success":
+            faiss_data = faiss_models.get("data", {})
+            defaults = faiss_data.get("defaults", {})
+            textual_model_name = textual_model_name or defaults.get("textual")
+            visual_model_name = visual_model_name or defaults.get("visual")
+
         # Hala yoksa default kullan
         if not textual_model_name:
             textual_model_name = DEFAULT_TEXTUAL_MODEL
         if not visual_model_name:
             visual_model_name = DEFAULT_VISUAL_MODEL
-    
-    wait_duration_seconds = data.get('wait_duration_seconds', 60)
-    delay_between_products_ms = data.get('delay_between_products_ms', 0)
+
+    wait_duration_seconds = data.get("wait_duration_seconds", 60)
+    delay_between_products_ms = data.get("delay_between_products_ms", 0)
 
     # Validate model names
     if not is_valid_model(textual_model_name):
-        return jsonify({
-            'status': 'error',
-            'error': f'Invalid textual model: {textual_model_name}. Available: {list(AVAILABLE_MODELS.keys())}'
-        }), 400
+        return jsonify(
+            {
+                "status": "error",
+                "error": f"Invalid textual model: {textual_model_name}. Available: {list(AVAILABLE_MODELS.keys())}",
+            }
+        ), 400
 
     if not is_valid_model(visual_model_name):
-        return jsonify({
-            'status': 'error',
-            'error': f'Invalid visual model: {visual_model_name}. Available: {list(AVAILABLE_MODELS.keys())}'
-        }), 400
+        return jsonify(
+            {
+                "status": "error",
+                "error": f"Invalid visual model: {visual_model_name}. Available: {list(AVAILABLE_MODELS.keys())}",
+            }
+        ), 400
 
-    logger.info(f"[BulkFAISS] Using models - Textual: {textual_model_name}, Visual: {visual_model_name}")
+    logger.info(
+        f"[BulkFAISS] Using models - Textual: {textual_model_name}, Visual: {visual_model_name}"
+    )
     logger.info(f"[BulkFAISS] Wait duration: {wait_duration_seconds}s")
 
     try:
         # Step 1: Clear FAISS index via FAISS service
         logger.info(f"[BulkFAISS] Step 1/2: Clearing FAISS index via service...")
         clear_start = time.time()
-        
+
         clear_result = faiss_service.clear_index()
-        
-        if clear_result.get('status') == 'error':
-            logger.warning(f"[BulkFAISS] Clear index failed: {clear_result.get('error')}")
+
+        if clear_result.get("status") == "error":
+            logger.warning(
+                f"[BulkFAISS] Clear index failed: {clear_result.get('error')}"
+            )
             # Continue anyway - index may already be empty
-        
+
         clear_duration = (time.time() - clear_start) * 1000
         logger.info(f"[BulkFAISS] Index cleared in {clear_duration:.2f}ms")
 
         # Step 2: Add all products
         logger.info(f"[BulkFAISS] Step 2/2: Adding all products from database...")
-        
-        # Get all active products with eager loading for brand relationship
-        products = (Product.query
-            .filter_by(is_active=True)
+
+        # Get all active products with eager loading for brand and images relationships
+        products = (
+            Product.query.filter_by(is_active=True)
             .options(
                 joinedload(Product.brand),
+                joinedload(Product.images),
             )
-            .all())
+            .all()
+        )
 
         if not products:
-            return jsonify({
-                'status': 'error',
-                'error': 'No products found in database'
-            }), 404
+            return jsonify(
+                {"status": "error", "error": "No products found in database"}
+            ), 404
 
         total_products = len(products)
         logger.info(f"[BulkFAISS] Starting bulk import of {total_products} products")
 
-        upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/products')
+        upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads/products")
+        logger.info(f"[BulkFAISS] Upload folder configured: {upload_folder}")
+        logger.info(
+            f"[BulkFAISS] Upload folder absolute: {os.path.abspath(upload_folder)}"
+        )
+        logger.info(
+            f"[BulkFAISS] Upload folder exists: {os.path.exists(upload_folder)}"
+        )
+
+        # List first few files in upload folder for verification
+        try:
+            files = os.listdir(upload_folder)[:5]
+            logger.info(f"[BulkFAISS] Sample files in upload folder: {files}")
+        except Exception as e:
+            logger.warning(f"[BulkFAISS] Could not list upload folder: {e}")
 
         # Track if we've waited after the first product
         waited_after_first = False
@@ -704,143 +741,214 @@ def add_all_products():
         for idx, product in enumerate(products):
             try:
                 # Get brand name
-                brand_name = product.brand.name if product.brand else ''
+                brand_name = product.brand.name if product.brand else ""
 
                 # Get first category name
                 categories = list(product.categories)
-                category_name = categories[0].name if categories else ''
+                category_name = categories[0].name if categories else ""
 
-                # Get image paths
+                # Get image paths with detailed logging
                 image_paths = []
-                for img in product.images:
-                    # img.url might be relative or absolute
-                    if os.path.isabs(img.url):
-                        image_path = img.url
-                    else:
-                        # Try to construct absolute path
-                        image_path = os.path.join(upload_folder, os.path.basename(img.url))
+                product_images = list(product.images)  # Force load from relationship
+                logger.info(
+                    f"[BulkFAISS] Product {product.product_id} has {len(product_images)} image records in DB"
+                )
 
-                    if os.path.exists(image_path):
-                        image_paths.append(image_path)
+                for img in product_images:
+                    raw_url = img.url
+
+                    # Handle different URL formats from database
+                    # Format 1: /uploads/products/filename.jpg (web URL path)
+                    # Format 2: uploads/products/filename.jpg (relative path)
+                    # Format 3: filename.jpg (just filename)
+                    # Format 4: C:/.../uploads/products/filename.jpg (absolute path)
+
+                    if raw_url.startswith("/uploads/products/"):
+                        # Web URL path - use config UPLOAD_FOLDER + filename
+                        filename = os.path.basename(raw_url)
+                        image_path = os.path.join(upload_folder, filename)
+                    elif raw_url.startswith("/"):
+                        # Other absolute web paths - remove leading slash and join with project root
+                        relative_path = raw_url[1:]
+                        image_path = os.path.join(
+                            os.path.dirname(current_app.root_path), relative_path
+                        )
+                    elif os.path.isabs(raw_url):
+                        # Already absolute file path
+                        image_path = raw_url
                     else:
-                        logger.warning(f"[BulkFAISS] Image not found: {image_path}")
+                        # Relative path or just filename - join with upload folder
+                        image_path = os.path.join(
+                            upload_folder, os.path.basename(raw_url)
+                        )
+
+                    # Normalize path
+                    norm_path = os.path.normpath(image_path)
+                    exists = os.path.exists(norm_path)
+
+                    logger.info(
+                        f"[BulkFAISS]   raw_url={raw_url} -> path={norm_path}, exists={exists}"
+                    )
+
+                    if exists:
+                        image_paths.append(norm_path)
+                        logger.info(f"[BulkFAISS]   ✓ Valid image: {norm_path}")
+                    else:
+                        logger.warning(
+                            f"[BulkFAISS]   ✗ Image not found: {norm_path} (raw: {raw_url})"
+                        )
+
+                logger.info(
+                    f"[BulkFAISS] Product {product.product_id}: {len(image_paths)}/{len(product_images)} images valid"
+                )
 
                 # Prepare product data for FAISS
                 product_data = {
-                    'id': str(product.product_id),
-                    'name': product.name,
-                    'description': product.description or '',
-                    'brand': brand_name,
-                    'category': category_name,
-                    'price': float(product.price) if product.price else 0.0,
-                    'images': image_paths,
-                    'textual_model_name': textual_model_name,
-                    'visual_model_name': visual_model_name
+                    "id": str(product.product_id),
+                    "name": product.name,
+                    "description": product.description or "",
+                    "brand": brand_name,
+                    "category": category_name,
+                    "price": float(product.price) if product.price else 0.0,
+                    "images": image_paths,
+                    "textual_model_name": textual_model_name,
+                    "visual_model_name": visual_model_name,
                 }
 
-                logger.info(f"[BulkFAISS] Adding product {product.product_id}: {product.name}")
+                logger.info(
+                    f"[BulkFAISS] Adding product {product.product_id}: {product.name}"
+                )
 
                 # For first product, retry if fails
-                max_retries = max_first_product_retries if idx == 0 and not waited_after_first else 1
+                max_retries = (
+                    max_first_product_retries
+                    if idx == 0 and not waited_after_first
+                    else 1
+                )
                 result = None
-                
+
                 for attempt in range(1, max_retries + 1):
                     # Call FAISS service
                     result = faiss_service.add_product(
-                        product_id=product_data['id'],
-                        name=product_data['name'],
-                        description=product_data['description'],
-                        brand=product_data['brand'],
-                        category=product_data['category'],
-                        price=product_data['price'],
-                        images=product_data['images'],
-                        textual_model_name=product_data['textual_model_name'],
-                        visual_model_name=product_data['visual_model_name']
+                        product_id=product_data["id"],
+                        name=product_data["name"],
+                        description=product_data["description"],
+                        brand=product_data["brand"],
+                        category=product_data["category"],
+                        price=product_data["price"],
+                        images=product_data["images"],
+                        textual_model_name=product_data["textual_model_name"],
+                        visual_model_name=product_data["visual_model_name"],
                     )
 
-                    if result.get('status') == 'success':
+                    if result.get("status") == "success":
                         if attempt > 1:
-                            logger.info(f"[BulkFAISS] ✅ First product succeeded on attempt {attempt}")
+                            logger.info(
+                                f"[BulkFAISS] ✅ First product succeeded on attempt {attempt}"
+                            )
                         break
                     else:
                         if attempt < max_retries:
-                            logger.warning(f"[BulkFAISS] First product attempt {attempt} failed, retrying...")
+                            logger.warning(
+                                f"[BulkFAISS] First product attempt {attempt} failed, retrying..."
+                            )
                             time.sleep(2)  # Wait before retry
                         else:
-                            logger.error(f"[BulkFAISS] First product failed after {max_retries} attempts")
+                            logger.error(
+                                f"[BulkFAISS] First product failed after {max_retries} attempts"
+                            )
 
-                if result.get('status') == 'success':
+                if result.get("status") == "success":
                     successful_count += 1
-                    logger.info(f"[BulkFAISS] ✅ Product {product.product_id} added successfully")
+                    details = result.get("details", {})
+                    visual_count = len(details.get("visual_vector_ids", []))
+                    text_id = details.get("textual_vector_id", "N/A")
+                    logger.info(
+                        f"[BulkFAISS] ✅ Product {product.product_id} added successfully: "
+                        f"text_id={text_id}, {visual_count} images embedded"
+                    )
 
                     # Wait after first successful product
                     if not waited_after_first:
                         waited_after_first = True
-                        logger.info(f"[BulkFAISS] ⏳ Waiting {wait_duration_seconds}s for FAISS index initialization...")
+                        logger.info(
+                            f"[BulkFAISS] ⏳ Waiting {wait_duration_seconds}s for FAISS index initialization..."
+                        )
                         time.sleep(wait_duration_seconds)
-                        logger.info(f"[BulkFAISS] ✅ Wait completed ({wait_duration_seconds}s), continuing with bulk import")
+                        logger.info(
+                            f"[BulkFAISS] ✅ Wait completed ({wait_duration_seconds}s), continuing with bulk import"
+                        )
+                elif result.get("status") == "skipped":
+                    # Product already exists - count as successful but note it was skipped
+                    successful_count += 1
+                    logger.warning(
+                        f"[BulkFAISS] ⚠️ Product {product.product_id} was skipped (already exists in index)"
+                    )
                 else:
                     failed_count += 1
-                    error_msg = result.get('error', 'Unknown error')
-                    errors.append({
-                        'product_id': product.product_id,
-                        'error': error_msg
-                    })
-                    logger.error(f"[BulkFAISS] ❌ Product {product.product_id} failed: {error_msg}")
+                    error_msg = result.get("error", "Unknown error")
+                    errors.append(
+                        {"product_id": product.product_id, "error": error_msg}
+                    )
+                    logger.error(
+                        f"[BulkFAISS] ❌ Product {product.product_id} failed: {error_msg}"
+                    )
 
             except Exception as e:
                 failed_count += 1
-                errors.append({
-                    'product_id': product.product_id,
-                    'error': str(e)
-                })
-                logger.error(f"[BulkFAISS] ❌ Product {product.product_id} exception: {e}")
+                errors.append({"product_id": product.product_id, "error": str(e)})
+                logger.error(
+                    f"[BulkFAISS] ❌ Product {product.product_id} exception: {e}"
+                )
 
             # Apply delay between products if configured
             if delay_between_products_ms > 0 and idx < len(products) - 1:
                 time.sleep(delay_between_products_ms / 1000.0)
-        
+
         total_time = (time.time() - start_time) * 1000
 
-        logger.info(f"[BulkFAISS] Bulk import completed: {successful_count}/{total_products} successful in {total_time:.2f}ms")
+        logger.info(
+            f"[BulkFAISS] Bulk import completed: {successful_count}/{total_products} successful in {total_time:.2f}ms"
+        )
 
-        return jsonify({
-            'status': 'success',
-            'message': f'Bulk import completed: {successful_count} products added',
-            'details': {
-                'total_products': total_products,
-                'successful_count': successful_count,
-                'failed_count': failed_count,
-                'total_time_ms': total_time,
-                'textual_model_name': textual_model_name,
-                'visual_model_name': visual_model_name,
-                'wait_applied': waited_after_first,
-                'wait_duration_seconds': wait_duration_seconds if waited_after_first else 0,
-                'delay_between_products_ms': delay_between_products_ms,
-                'errors': errors[:10]  # Limit errors to first 10
+        return jsonify(
+            {
+                "status": "success",
+                "message": f"Bulk import completed: {successful_count} products added",
+                "details": {
+                    "total_products": total_products,
+                    "successful_count": successful_count,
+                    "failed_count": failed_count,
+                    "total_time_ms": total_time,
+                    "textual_model_name": textual_model_name,
+                    "visual_model_name": visual_model_name,
+                    "wait_applied": waited_after_first,
+                    "wait_duration_seconds": wait_duration_seconds
+                    if waited_after_first
+                    else 0,
+                    "delay_between_products_ms": delay_between_products_ms,
+                    "errors": errors[:10],  # Limit errors to first 10
+                },
             }
-        }), 200
+        ), 200
 
     except Exception as e:
         logger.error(f"[BulkFAISS] Bulk import failed: {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 
-@bulk_faiss_bp.route('/rebuild-with-test', methods=['POST'])
+@bulk_faiss_bp.route("/rebuild-with-test", methods=["POST"])
 def rebuild_with_test():
     """
-    Complete rebuild workflow: Clear index → Test product → Bulk add all products.
+    Complete rebuild workflow: Test product → Bulk add all products.
 
     This endpoint performs a complete FAISS index rebuild with verification:
-    1. Clears the entire FAISS index
-    2. Adds a test product and waits for successful confirmation
-    3. Adds all products from the database
+    1. Adds a test product and waits for successful confirmation
+    2. Adds all products from the database (products already in index will be skipped)
 
-    Use this when changing embedding models or when you need to ensure
-    the FAISS service is working correctly before bulk import.
+    Use this when you need to ensure the FAISS service is working correctly
+    before bulk import. Note: Existing products in FAISS will be skipped,
+    not updated. To force update, use /delete-all first, then call this endpoint.
 
     Send JSON body with optional:
     - textual_model_name: Model for text embeddings
@@ -851,6 +959,7 @@ def rebuild_with_test():
     - delay_between_products_ms: Delay between each product (default: 0)
     """
     import time
+
     start_time = time.time()
 
     workflow_steps = []
@@ -859,74 +968,106 @@ def rebuild_with_test():
     try:
         # Get configuration from request body
         data = request.get_json() or {}
-        
+
         # Request'te model varsa onu kullan
-        textual_model_name = data.get('textual_model_name')
-        visual_model_name = data.get('visual_model_name')
-        
+        textual_model_name = data.get("textual_model_name")
+        visual_model_name = data.get("visual_model_name")
+
         # Yoksa FAISS service'ten çek
         if not textual_model_name or not visual_model_name:
             faiss_models = faiss_service.get_available_models()
-            if faiss_models.get('status') == 'success':
-                faiss_data = faiss_models.get('data', {})
-                defaults = faiss_data.get('defaults', {})
-                textual_model_name = textual_model_name or defaults.get('textual')
-                visual_model_name = visual_model_name or defaults.get('visual')
-            
+            if faiss_models.get("status") == "success":
+                faiss_data = faiss_models.get("data", {})
+                defaults = faiss_data.get("defaults", {})
+                textual_model_name = textual_model_name or defaults.get("textual")
+                visual_model_name = visual_model_name or defaults.get("visual")
+
             # Hala yoksa default kullan
             if not textual_model_name:
                 textual_model_name = DEFAULT_TEXTUAL_MODEL
             if not visual_model_name:
                 visual_model_name = DEFAULT_VISUAL_MODEL
-        
-        test_product_id = data.get('test_product_id', 'test-product-001')
-        wait_duration_seconds = data.get('wait_duration_seconds', 60)
-        delay_between_products_ms = data.get('delay_between_products_ms', 0)
+
+        test_product_id = data.get("test_product_id", "test-product-001")
+        wait_duration_seconds = data.get("wait_duration_seconds", 60)
+        delay_between_products_ms = data.get("delay_between_products_ms", 0)
 
         # Validate model names
         if not is_valid_model(textual_model_name):
-            return jsonify({
-                'status': 'error',
-                'error': f'Invalid textual model: {textual_model_name}. Available: {list(AVAILABLE_MODELS.keys())}'
-            }), 400
+            return jsonify(
+                {
+                    "status": "error",
+                    "error": f"Invalid textual model: {textual_model_name}. Available: {list(AVAILABLE_MODELS.keys())}",
+                }
+            ), 400
 
         if not is_valid_model(visual_model_name):
-            return jsonify({
-                'status': 'error',
-                'error': f'Invalid visual model: {visual_model_name}. Available: {list(AVAILABLE_MODELS.keys())}'
-            }), 400
+            return jsonify(
+                {
+                    "status": "error",
+                    "error": f"Invalid visual model: {visual_model_name}. Available: {list(AVAILABLE_MODELS.keys())}",
+                }
+            ), 400
 
-        logger.info(f"[BulkFAISS] Starting rebuild workflow with models - Textual: {textual_model_name}, Visual: {visual_model_name}")
+        logger.info(
+            f"[BulkFAISS] Starting rebuild workflow with models - Textual: {textual_model_name}, Visual: {visual_model_name}"
+        )
 
-        # Step 1: Clear the index
-        logger.info(f"[BulkFAISS] Step 1/3: Clearing FAISS index")
+        # Step 1: Add test product
+        logger.info(f"[BulkFAISS] Step 1/2: Adding test product {test_product_id}")
         step1_start = time.time()
 
-        clear_result = faiss_service.clear_index()
+        # Retry logic for test product
+        max_retries = 3
+        test_success = False
+        test_result = None
+
+        for attempt in range(1, max_retries + 1):
+            test_result = faiss_service.add_test_product(product_id=test_product_id)
+
+            if test_result.get("status") == "success":
+                test_success = True
+                break
+            else:
+                if attempt < max_retries:
+                    logger.warning(
+                        f"[BulkFAISS] Test product attempt {attempt} failed, retrying..."
+                    )
+                    time.sleep(2)
 
         step1_duration = (time.time() - step1_start) * 1000
 
-        if clear_result.get('status') == 'error':
-            logger.error(f"[BulkFAISS] Step 1 failed: {clear_result.get('error')}")
-            workflow_steps.append({
-                'step': 'clear_index',
-                'status': 'error',
-                'error': clear_result.get('error'),
-                'duration_ms': step1_duration
-            })
+        if not test_success:
+            logger.error(f"[BulkFAISS] Step 1 failed: Test product could not be added")
+            workflow_steps.append(
+                {
+                    "step": "test_product",
+                    "status": "error",
+                    "error": test_result.get("error", "Test product failed"),
+                    "attempts": max_retries,
+                    "duration_ms": step1_duration,
+                }
+            )
             overall_success = False
         else:
-            logger.info(f"[BulkFAISS] Step 1 completed: Index cleared in {step1_duration:.2f}ms")
-            workflow_steps.append({
-                'step': 'clear_index',
-                'status': 'success',
-                'details': clear_result.get('details', {}),
-                'duration_ms': step1_duration
-            })
+            logger.info(
+                f"[BulkFAISS] Step 1 completed: Test product added in {step1_duration:.2f}ms"
+            )
+            workflow_steps.append(
+                {
+                    "step": "test_product",
+                    "status": "success",
+                    "details": test_result.get("details", {}),
+                    "attempts": max_retries
+                    if not test_result.get("status") == "success"
+                    else 1,
+                    "duration_ms": step1_duration,
+                }
+            )
 
-        # Step 2: Add test product (only if step 1 succeeded)
+        # Step 2: Bulk add all products
         if overall_success:
-            logger.info(f"[BulkFAISS] Step 2/3: Adding test product {test_product_id}")
+            logger.info(f"[BulkFAISS] Step 2/2: Adding all products from database")
             step2_start = time.time()
 
             # Retry logic for test product
@@ -937,12 +1078,16 @@ def rebuild_with_test():
             for attempt in range(1, max_retries + 1):
                 test_result = faiss_service.add_test_product(product_id=test_product_id)
 
-                if test_result.get('status') == 'success':
+                if test_result.get("status") == "success":
                     test_success = True
-                    logger.info(f"[BulkFAISS] Step 2 completed on attempt {attempt}: Test product added")
+                    logger.info(
+                        f"[BulkFAISS] Step 2 completed on attempt {attempt}: Test product added"
+                    )
                     break
                 else:
-                    logger.warning(f"[BulkFAISS] Step 2 attempt {attempt} failed: {test_result.get('error')}")
+                    logger.warning(
+                        f"[BulkFAISS] Step 2 attempt {attempt} failed: {test_result.get('error')}"
+                    )
                     if attempt < max_retries:
                         time.sleep(2)  # Wait before retry
 
@@ -950,143 +1095,357 @@ def rebuild_with_test():
 
             if not test_success:
                 logger.error(f"[BulkFAISS] Step 2 failed after {max_retries} attempts")
-                workflow_steps.append({
-                    'step': 'test_product',
-                    'status': 'error',
-                    'error': test_result.get('error', 'Unknown error'),
-                    'attempts': max_retries,
-                    'duration_ms': step2_duration
-                })
+                workflow_steps.append(
+                    {
+                        "step": "test_product",
+                        "status": "error",
+                        "error": test_result.get("error", "Unknown error"),
+                        "attempts": max_retries,
+                        "duration_ms": step2_duration,
+                    }
+                )
                 overall_success = False
             else:
-                workflow_steps.append({
-                    'step': 'test_product',
-                    'status': 'success',
-                    'details': test_result.get('details', {}),
-                    'attempts': max_retries if not test_result.get('status') == 'success' else 1,
-                    'duration_ms': step2_duration
-                })
+                workflow_steps.append(
+                    {
+                        "step": "test_product",
+                        "status": "success",
+                        "details": test_result.get("details", {}),
+                        "attempts": max_retries
+                        if not test_result.get("status") == "success"
+                        else 1,
+                        "duration_ms": step2_duration,
+                    }
+                )
 
-        # Step 3: Bulk add all products (only if steps 1 and 2 succeeded)
+        # Step 2: Bulk add all products
         if overall_success:
-            logger.info(f"[BulkFAISS] Step 3/3: Adding all products from database")
-            step3_start = time.time()
+            logger.info(f"[BulkFAISS] Step 2/2: Adding all products from database")
+            step2_start = time.time()
 
-            # Get all active products with eager loading for brand relationship
-            products = (Product.query
-                .filter_by(is_active=True)
+            # Get all active products with eager loading for brand and images relationships
+            products = (
+                Product.query.filter_by(is_active=True)
                 .options(
                     joinedload(Product.brand),
+                    joinedload(Product.images),
                 )
-                .all())
+                .all()
+            )
 
             if not products:
-                logger.error(f"[BulkFAISS] Step 3 failed: No products found in database")
-                workflow_steps.append({
-                    'step': 'bulk_add',
-                    'status': 'error',
-                    'error': 'No products found in database'
-                })
+                logger.error(
+                    f"[BulkFAISS] Step 3 failed: No products found in database"
+                )
+                workflow_steps.append(
+                    {
+                        "step": "bulk_add",
+                        "status": "error",
+                        "error": "No products found in database",
+                    }
+                )
                 overall_success = False
             else:
                 successful_count = 0
                 failed_count = 0
                 errors = []
 
-                upload_folder = current_app.config.get('UPLOAD_FOLDER', 'uploads/products')
-                
+                upload_folder = current_app.config.get(
+                    "UPLOAD_FOLDER", "uploads/products"
+                )
+
                 # Wait logic for bulk add
                 waited_after_first = False
                 first_product_added = False
 
                 for idx, product in enumerate(products):
                     try:
-                        brand_name = product.brand.name if product.brand else ''
+                        brand_name = product.brand.name if product.brand else ""
                         categories = list(product.categories)
-                        category_name = categories[0].name if categories else ''
+                        category_name = categories[0].name if categories else ""
 
+                        # Get image paths with detailed logging
                         image_paths = []
-                        for img in product.images:
-                            image_path = img.url if os.path.isabs(img.url) else os.path.join(upload_folder, os.path.basename(img.url))
+                        product_images = list(
+                            product.images
+                        )  # Force load from relationship
+                        logger.info(
+                            f"[BulkFAISS] Product {product.product_id} has {len(product_images)} image records in DB"
+                        )
+
+                        for img in product_images:
+                            image_path = (
+                                img.url
+                                if os.path.isabs(img.url)
+                                else os.path.join(
+                                    upload_folder, os.path.basename(img.url)
+                                )
+                            )
                             if os.path.exists(image_path):
                                 image_paths.append(image_path)
+                                logger.info(
+                                    f"[BulkFAISS]   ✓ Valid image: {image_path}"
+                                )
+                            else:
+                                logger.warning(
+                                    f"[BulkFAISS]   ✗ Image not found: {image_path} (DB url: {img.url})"
+                                )
+
+                        logger.info(
+                            f"[BulkFAISS] Product {product.product_id}: {len(image_paths)}/{len(product_images)} images valid"
+                        )
 
                         result = faiss_service.add_product(
                             product_id=str(product.product_id),
                             name=product.name,
-                            description=product.description or '',
+                            description=product.description or "",
                             brand=brand_name,
                             category=category_name,
                             price=float(product.price) if product.price else 0.0,
                             images=image_paths,
                             textual_model_name=textual_model_name,
-                            visual_model_name=visual_model_name
+                            visual_model_name=visual_model_name,
                         )
 
-                        if result.get('status') == 'success':
+                        if result.get("status") == "success":
                             successful_count += 1
-                            
+                            details = result.get("details", {})
+                            visual_count = len(details.get("visual_vector_ids", []))
+                            text_id = details.get("textual_vector_id", "N/A")
+                            logger.info(
+                                f"[BulkFAISS] ✅ Product {product.product_id} added: "
+                                f"text_id={text_id}, {visual_count} images embedded"
+                            )
+
                             # Wait after first successful product
-                            if wait_after_first and not waited_after_first:
+                            if (
+                                data.get("wait_after_first", True)
+                                and not waited_after_first
+                            ):
                                 first_product_added = True
                                 waited_after_first = True
-                                logger.info(f"[BulkFAISS] ⏳ Waiting {wait_duration_seconds}s for FAISS index initialization...")
+                                logger.info(
+                                    f"[BulkFAISS] ⏳ Waiting {wait_duration_seconds}s for FAISS index initialization..."
+                                )
                                 time.sleep(wait_duration_seconds)
-                                logger.info(f"[BulkFAISS] ✅ Wait completed, continuing with bulk import")
+                                logger.info(
+                                    f"[BulkFAISS] ✅ Wait completed, continuing with bulk import"
+                                )
+                        elif result.get("status") == "skipped":
+                            successful_count += 1
+                            logger.warning(
+                                f"[BulkFAISS] ⚠️ Product {product.product_id} was skipped (already exists)"
+                            )
                         else:
                             failed_count += 1
-                            errors.append({
-                                'product_id': product.product_id,
-                                'error': result.get('error', 'Unknown error')
-                            })
+                            errors.append(
+                                {
+                                    "product_id": product.product_id,
+                                    "error": result.get("error", "Unknown error"),
+                                }
+                            )
+                            logger.error(
+                                f"[BulkFAISS] ❌ Product {product.product_id} failed: {result.get('error', 'Unknown error')}"
+                            )
 
                     except Exception as e:
                         failed_count += 1
-                        errors.append({
-                            'product_id': product.product_id,
-                            'error': str(e)
-                        })
+                        errors.append(
+                            {"product_id": product.product_id, "error": str(e)}
+                        )
 
                     # Apply delay between products if configured
                     if delay_between_products_ms > 0 and idx < len(products) - 1:
                         time.sleep(delay_between_products_ms / 1000.0)
 
-                step3_duration = (time.time() - step3_start) * 1000
+                step2_duration = (time.time() - step2_start) * 1000
 
-                logger.info(f"[BulkFAISS] Step 3 completed: {successful_count}/{len(products)} products added in {step3_duration:.2f}ms")
+                logger.info(
+                    f"[BulkFAISS] Step 2 completed: {successful_count}/{len(products)} products added in {step2_duration:.2f}ms"
+                )
 
-                workflow_steps.append({
-                    'step': 'bulk_add',
-                    'status': 'success' if failed_count == 0 else 'partial',
-                    'details': {
-                        'total_products': len(products),
-                        'successful_count': successful_count,
-                        'failed_count': failed_count,
-                        'errors': errors[:10]
-                    },
-                    'duration_ms': step3_duration
-                })
+                workflow_steps.append(
+                    {
+                        "step": "bulk_add",
+                        "status": "success" if failed_count == 0 else "partial",
+                        "details": {
+                            "total_products": len(products),
+                            "successful_count": successful_count,
+                            "failed_count": failed_count,
+                            "errors": errors[:10],
+                        },
+                        "duration_ms": step2_duration,
+                    }
+                )
 
         total_duration = (time.time() - start_time) * 1000
 
         logger.info(f"[BulkFAISS] Rebuild workflow completed in {total_duration:.2f}ms")
 
-        return jsonify({
-            'status': 'success' if overall_success else 'partial',
-            'workflow': 'rebuild_with_test',
-            'message': f'Rebuild completed in {total_duration:.2f}ms',
-            'steps': workflow_steps,
-            'summary': {
-                'total_duration_ms': total_duration,
-                'all_steps_successful': overall_success
+        return jsonify(
+            {
+                "status": "success" if overall_success else "partial",
+                "workflow": "rebuild_with_test",
+                "message": f"Rebuild completed in {total_duration:.2f}ms",
+                "steps": workflow_steps,
+                "summary": {
+                    "total_duration_ms": total_duration,
+                    "all_steps_successful": overall_success,
+                },
             }
-        }), 200 if overall_success else 207
+        ), 200 if overall_success else 207
 
     except Exception as e:
         logger.error(f"[BulkFAISS] Rebuild workflow failed: {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e),
-            'workflow': 'rebuild_with_test',
-            'steps_completed': workflow_steps
-        }), 500
+        return jsonify(
+            {
+                "status": "error",
+                "error": str(e),
+                "workflow": "rebuild_with_test",
+                "steps_completed": workflow_steps,
+            }
+        ), 500
+
+
+@bulk_faiss_bp.route("/delete-all", methods=["POST"])
+def delete_all_products():
+    """
+    Delete all products from FAISS index.
+
+    This endpoint iterates through all products in the database and deletes
+    each one from the FAISS index using the delete-product endpoint.
+
+    Request body (optional):
+        - delay_between_products_ms: Delay between each delete (default: 0)
+    """
+    import time
+
+    start_time = time.time()
+
+    successful_count = 0
+    failed_count = 0
+    not_found_count = 0
+    errors = []
+
+    # Get configuration from request body
+    data = request.get_json() or {}
+    delay_between_products_ms = data.get("delay_between_products_ms", 0)
+
+    try:
+        logger.info(
+            "[BulkFAISS] Starting bulk delete of all products from FAISS index..."
+        )
+
+        # Get all active products (we need their IDs to delete)
+        products = (
+            Product.query.filter_by(is_active=True)
+            .with_entities(Product.product_id)
+            .all()
+        )
+
+        if not products:
+            return jsonify(
+                {
+                    "status": "error",
+                    "error": "No products found in database",
+                }
+            ), 404
+
+        total_products = len(products)
+        logger.info(f"[BulkFAISS] Found {total_products} products to delete from FAISS")
+
+        for idx, (product_id,) in enumerate(products):
+            try:
+                # Call FAISS service to delete product
+                result = faiss_service.delete_product(str(product_id))
+
+                if result.get("status") == "success":
+                    if "not in FAISS index" in result.get("message", ""):
+                        not_found_count += 1
+                        logger.info(
+                            f"[BulkFAISS] Product {product_id} not in index (already deleted)"
+                        )
+                    else:
+                        successful_count += 1
+                        logger.info(
+                            f"[BulkFAISS] ✅ Deleted product {product_id} from FAISS"
+                        )
+                else:
+                    failed_count += 1
+                    error_msg = result.get("error", "Unknown error")
+                    errors.append({"product_id": product_id, "error": error_msg})
+                    logger.error(
+                        f"[BulkFAISS] ❌ Failed to delete product {product_id}: {error_msg}"
+                    )
+
+            except Exception as e:
+                failed_count += 1
+                errors.append({"product_id": product_id, "error": str(e)})
+                logger.error(
+                    f"[BulkFAISS] ❌ Exception deleting product {product_id}: {e}"
+                )
+
+            # Apply delay between products if configured
+            if delay_between_products_ms > 0 and idx < len(products) - 1:
+                time.sleep(delay_between_products_ms / 1000.0)
+
+        total_time = (time.time() - start_time) * 1000
+
+        logger.info(
+            f"[BulkFAISS] Bulk delete completed: {successful_count} deleted, "
+            f"{not_found_count} not found, {failed_count} failed in {total_time:.2f}ms"
+        )
+
+        return jsonify(
+            {
+                "status": "success",
+                "message": f"Bulk delete completed: {successful_count} products deleted from FAISS",
+                "details": {
+                    "total_products": total_products,
+                    "successful_count": successful_count,
+                    "not_found_count": not_found_count,
+                    "failed_count": failed_count,
+                    "total_time_ms": total_time,
+                    "delay_between_products_ms": delay_between_products_ms,
+                    "errors": errors[:10],  # Limit errors to first 10
+                },
+            }
+        ), 200
+
+    except Exception as e:
+        logger.error(f"[BulkFAISS] Bulk delete failed: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@bulk_faiss_bp.route("/clear-index", methods=["POST"])
+def clear_faiss_index():
+    """
+    Clear entire FAISS index (faster than delete-all).
+
+    This uses the FAISS service's clear-index endpoint to wipe all embeddings
+    at once, which is much faster than deleting products one by one.
+    """
+    try:
+        logger.info("[BulkFAISS] Clearing entire FAISS index...")
+
+        result = faiss_service.clear_index()
+
+        if result.get("status") == "success":
+            return jsonify(
+                {
+                    "status": "success",
+                    "message": "FAISS index cleared successfully",
+                    "details": result.get("details", {}),
+                }
+            ), 200
+        else:
+            return jsonify(
+                {
+                    "status": "error",
+                    "error": result.get("error", "Failed to clear index"),
+                }
+            ), 500
+
+    except Exception as e:
+        logger.error(f"[BulkFAISS] Clear index failed: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500

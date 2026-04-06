@@ -1,6 +1,6 @@
 {
-  "textual_model": "Qwen/Qwen3-Embedding-8B",
+  "textual_model": "ViT-B/32",
   "visual_model": "ViT-B/32",
   "fusion_endpoint": "late",
-  "last_updated": "2026-03-29T18:30:14.631819Z"
+  "last_updated": "2026-04-06T14:09:17.156330Z"
 }

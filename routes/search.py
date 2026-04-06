@@ -58,58 +58,58 @@ def save_search_image(file):
 def save_base64_image(base64_data):
     """
     Save base64 encoded image to file and return the path.
-    
-    Supports data URI format (data:image/jpeg;base64,/9j/4AAQ...) 
+
+    Supports data URI format (data:image/jpeg;base64,/9j/4AAQ...)
     or raw base64 string.
     """
     if not base64_data:
         return None
-    
+
     try:
         # Handle data URI format
-        if base64_data.startswith('data:'):
+        if base64_data.startswith("data:"):
             # Extract mime type and base64 data
-            match = re.match(r'data:([^;]+);base64,(.+)', base64_data)
+            match = re.match(r"data:([^;]+);base64,(.+)", base64_data)
             if match:
                 mime_type = match.group(1)
                 base64_content = match.group(2)
-                
+
                 # Map mime type to extension
                 mime_to_ext = {
-                    'image/jpeg': '.jpg',
-                    'image/jpg': '.jpg',
-                    'image/png': '.png',
-                    'image/gif': '.gif',
-                    'image/webp': '.webp',
-                    'image/bmp': '.bmp'
+                    "image/jpeg": ".jpg",
+                    "image/jpg": ".jpg",
+                    "image/png": ".png",
+                    "image/gif": ".gif",
+                    "image/webp": ".webp",
+                    "image/bmp": ".bmp",
                 }
-                ext = mime_to_ext.get(mime_type, '.jpg')
+                ext = mime_to_ext.get(mime_type, ".jpg")
             else:
-                ext = '.jpg'
-                base64_content = base64_data.split(',')[-1]
+                ext = ".jpg"
+                base64_content = base64_data.split(",")[-1]
         else:
-            ext = '.jpg'
+            ext = ".jpg"
             base64_content = base64_data
-        
+
         # Decode base64
         image_data = base64.b64decode(base64_content)
-        
+
         # Save to file
         filename = f"search_{uuid.uuid4().hex}{ext}"
         upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads/products")
         os.makedirs(upload_folder, exist_ok=True)
         file_path = os.path.join(upload_folder, filename)
-        
-        with open(file_path, 'wb') as f:
+
+        with open(file_path, "wb") as f:
             f.write(image_data)
-        
+
         # Verify
         if not os.path.exists(file_path):
             raise OSError("File save failed - file not found after save")
-        
+
         logger.info(f"[Search] Base64 image saved to: {file_path}")
         return file_path
-        
+
     except Exception as e:
         logger.error(f"[Search] Failed to save base64 image: {e}")
         raise ValueError(f"Base64 image processing failed: {str(e)}")
@@ -127,14 +127,14 @@ def search():
     - Save everything for analytics
 
     Query Parameters (as form data):
-    - raw_text (required): User's search query
-    - images: Optional image file(s) for visual search
+    - raw_text (optional): User's search query (required if no image provided)
+    - images: Optional image file(s) for visual search (required if no text provided)
     - engine: Correction engine to use ('symspell', 'byt5')
     - correction_enabled: 'true' or 'false' (default: true)
 
     Fusion type (late/early) is determined from saved config:
     - text_only: when only text is provided
-    - image_only: when only image is provided  
+    - image_only: when only image is provided
     - late_fusion: when both provided and fusion_endpoint='late'
     - early_fusion: when both provided and fusion_endpoint='early' (TODO: base64 not supported yet)
     - db_fallback: when FAISS fails
@@ -146,17 +146,17 @@ def search():
         # Check fusion endpoint setting
         fusion_endpoint = get_selected_fusion_endpoint()
         logger.info(f"[Search Route] ⚙️ Configured fusion endpoint: {fusion_endpoint}")
-        
+
         # Get all form data
         form_data = request.form.to_dict()
         images = request.files.getlist("images")
         image_file = images[0] if len(images) > 0 else None
-        
+
         # Check for base64 image in form data
         base64_image = form_data.get("image_base64")
-        
+
         image = None
-        
+
         # Handle file upload
         if image_file:
             try:
@@ -165,7 +165,7 @@ def search():
             except ValueError as e:
                 logger.error(f"[Search] Image validation error: {e}")
                 return jsonify({"error": str(e)}), 400
-        
+
         # Handle base64 image
         elif base64_image:
             try:
@@ -177,15 +177,20 @@ def search():
 
         print(f"DEBUG [routes/search.py]: Received form data: {form_data}")
 
-        # Validate raw_text
-        raw_text = form_data.get("raw_text")
-        if not raw_text:
-            print("DEBUG [routes/search.py]: Missing 'raw_text' in request")
-            return jsonify({"error": "Missing 'raw_text' in request"}), 400
+        # Get raw_text (now optional if image is provided)
+        raw_text = form_data.get("raw_text", "")
 
-        if not raw_text.strip():
-            print("DEBUG [routes/search.py]: 'raw_text' is empty")
-            return jsonify({"error": "'raw_text' cannot be empty"}), 400
+        # Validate that at least one of text or image is provided
+        has_text = raw_text and raw_text.strip()
+        has_image = bool(image)
+
+        if not has_text and not has_image:
+            print(
+                "DEBUG [routes/search.py]: Missing both 'raw_text' and 'image' in request"
+            )
+            return jsonify(
+                {"error": "Either 'raw_text' or 'image' must be provided"}
+            ), 400
 
         engine = form_data.get("engine")
 
@@ -254,7 +259,7 @@ def db_fallback_search():
     DB fallback endpoint - performs database search using text from an existing search.
 
     Takes a search_id, retrieves the original text, performs a simple DB ILIKE search
-    on product names, and returns the first 20 matching products.
+    on product names, and returns all matching products.
     Does NOT save anything to the database.
 
     Request Body (JSON):
@@ -263,7 +268,7 @@ def db_fallback_search():
     Returns:
         - original_search_id: The search_id that was provided
         - search_text: The text that was used for search
-        - products: Array of up to 20 products with product_id, name, price, score
+        - products: Array of all matching products with product_id, name, price, score
     """
     try:
         data = request.get_json()
