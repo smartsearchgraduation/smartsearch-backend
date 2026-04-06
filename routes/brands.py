@@ -23,7 +23,7 @@ def get_brands():
 
 @brands_bp.route('/brands/<int:brand_id>', methods=['GET'])
 def get_brand(brand_id):
-    """Fetch a single brand's details."""
+    """Fetch a ssingle brand's details."""
     try:
         brand = Brand.query.get(brand_id)
         if not brand:
