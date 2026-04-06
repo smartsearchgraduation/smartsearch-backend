@@ -25,17 +25,31 @@ def save_search_image(file):
         return None
 
     try:
-        # Simple filename generation - assume jpg for simplicity
-        # TODO: Should validate file type and use proper extension
-        filename = f"search_{uuid.uuid4().hex}.jpg"
+        # Extract file extension from original filename
+        original_ext = os.path.splitext(file.filename)[1].lower()
+        if not original_ext:
+            # Default to .jpg if no extension provided
+            original_ext = ".jpg"
+
+        # Validate it's an image extension
+        allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
+        if original_ext not in allowed_extensions:
+            raise ValueError(f"Unsupported image format: {original_ext}")
+
+        filename = f"search_{uuid.uuid4().hex}{original_ext}"
         upload_folder = current_app.config.get("UPLOAD_FOLDER", "uploads/products")
         os.makedirs(upload_folder, exist_ok=True)
         file_path = os.path.join(upload_folder, filename)
         file.save(file_path)
+
+        # Verify file was saved successfully
+        if not os.path.exists(file_path):
+            raise OSError("File save failed - file not found after save")
+
         return file_path
     except Exception as e:
         logger.error(f"[Search] Failed to save search image: {e}")
-        return None
+        raise ValueError(f"Image processing failed: {str(e)}")
 
 
 @search_bp.route("/search", methods=["POST"])
@@ -73,7 +87,11 @@ def search():
 
         # TODO: QUICK FIX - Convert FileStorage to file path for FAISS compatibility
         # This should be replaced with proper image management in the future
-        image = save_search_image(image_file) if image_file else None
+        try:
+            image = save_search_image(image_file) if image_file else None
+        except ValueError as e:
+            logger.error(f"[Search] Image validation error: {e}")
+            return jsonify({"error": str(e)}), 400
 
         print(f"DEBUG [routes/search.py]: Received form data: {form_data}")
         print(f"DEBUG [routes/search.py]: Images: {images}")
