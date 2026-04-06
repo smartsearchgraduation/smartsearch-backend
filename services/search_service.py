@@ -12,7 +12,7 @@ import mimetypes
 from typing import Dict, Any, List, Optional
 
 from flask import current_app
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from sqlalchemy.orm import joinedload
 from models import db, SearchQuery, Retrieve, Product, SearchTime
 from .text_corrector_service import text_corrector_service
@@ -221,15 +221,20 @@ class SearchService:
                 start_db = time.time()
                 search_terms = corrected_text.split()
                 
-                # Build OR conditions for each word in name OR description
-                or_conditions = []
+                # Build AND conditions across terms, OR within each term (name OR description)
+                and_conditions = []
                 for term in search_terms:
                     search_pattern = f"%{term}%"
-                    or_conditions.append(Product.name.ilike(search_pattern))
-                    or_conditions.append(Product.description.ilike(search_pattern))
+                    # For each term, it can match name OR description
+                    term_condition = or_(
+                        Product.name.ilike(search_pattern),
+                        Product.description.ilike(search_pattern)
+                    )
+                    and_conditions.append(term_condition)
                 
+                # All terms must match (AND between terms)
                 db_products = Product.query.filter(
-                    or_(*or_conditions)
+                    and_(*and_conditions)
                 ).order_by(Product.name.asc()).limit(20).all()
                 
                 products = [
@@ -491,15 +496,20 @@ class SearchService:
                 start_db = time.time()
                 search_terms = raw_text.split()
                 
-                # Build OR conditions for each word in name OR description
-                or_conditions = []
+                # Build AND conditions across terms, OR within each term (name OR description)
+                and_conditions = []
                 for term in search_terms:
                     search_pattern = f"%{term}%"
-                    or_conditions.append(Product.name.ilike(search_pattern))
-                    or_conditions.append(Product.description.ilike(search_pattern))
+                    # For each term, it can match name OR description
+                    term_condition = or_(
+                        Product.name.ilike(search_pattern),
+                        Product.description.ilike(search_pattern)
+                    )
+                    and_conditions.append(term_condition)
                 
+                # All terms must match (AND between terms)
                 db_products = Product.query.filter(
-                    or_(*or_conditions)
+                    and_(*and_conditions)
                 ).order_by(Product.name.asc()).limit(20).all()
                 
                 products = [
@@ -848,15 +858,20 @@ class SearchService:
             
             search_terms = search_text.split()
             
-            # Build OR conditions for each word in name OR description
-            or_conditions = []
+            # Build AND conditions across terms, OR within each term (name OR description)
+            and_conditions = []
             for term in search_terms:
                 search_pattern = f"%{term}%"
-                or_conditions.append(Product.name.ilike(search_pattern))
-                or_conditions.append(Product.description.ilike(search_pattern))
+                # For each term, it can match name OR description
+                term_condition = or_(
+                    Product.name.ilike(search_pattern),
+                    Product.description.ilike(search_pattern)
+                )
+                and_conditions.append(term_condition)
             
+            # All terms must match (AND between terms)
             db_products = Product.query.filter(
-                or_(*or_conditions)
+                and_(*and_conditions)
             ).options(
                 joinedload(Product.brand),
                 joinedload(Product.images)
