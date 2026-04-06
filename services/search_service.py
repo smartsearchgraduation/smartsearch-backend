@@ -17,7 +17,7 @@ from sqlalchemy.orm import joinedload
 from models import db, SearchQuery, Retrieve, Product, SearchTime
 from .text_corrector_service import text_corrector_service
 from .faiss_retrieval_service import faiss_service
-from config.models import get_selected_fusion_endpoint
+from config.models import get_selected_fusion_endpoint, get_selected_models
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +98,13 @@ class SearchService:
             logger.info(f"[Search] ━━━ STEP 2: SEARCH ━━━")
             start_search = time.time()
             
-            # Get configured fusion endpoint from settings
-            configured_fusion = get_selected_fusion_endpoint()  # 'late' or 'early'
+            # Get configured models and fusion endpoint from settings
+            selected_models = get_selected_models()
+            configured_fusion = selected_models.get('fusion_endpoint', 'late')  # 'late' or 'early'
+            configured_textual_model = selected_models.get('textual_model', 'BAAI/bge-large-en-v1.5')
+            configured_visual_model = selected_models.get('visual_model', 'ViT-B/32')
+            
+            logger.info(f"[Search] ⚙️  Configured Models - Textual: {configured_textual_model}, Visual: {configured_visual_model}")
             
             if semantic_search_enabled:
                 # Use FAISS for semantic search
@@ -118,6 +123,7 @@ class SearchService:
                         faiss_result = faiss_service.search_early_fusion(
                             text=corrected_text,
                             image_path=image,
+                            fused_model_name=configured_visual_model,
                             top_k=10
                         )
                     else:
@@ -127,6 +133,8 @@ class SearchService:
                         faiss_result = faiss_service.search_late_fusion(
                             text=corrected_text,
                             image_path=image,
+                            textual_model_name=configured_textual_model,
+                            visual_model_name=configured_visual_model,
                             top_k=10
                         )
                         
@@ -136,6 +144,7 @@ class SearchService:
                     logger.info(f"[Search] 🖼️  Mode: Image-only Search")
                     faiss_result = faiss_service.search_image(
                         image_path=image,
+                        visual_model_name=configured_visual_model,
                         top_k=10
                     )
                 else:
@@ -144,6 +153,7 @@ class SearchService:
                     logger.info(f"[Search] 📝 Mode: Text-only Search")
                     faiss_result = faiss_service.search_text(
                         text=corrected_text,
+                        textual_model_name=configured_textual_model,
                         top_k=10
                     )
                 
@@ -152,9 +162,9 @@ class SearchService:
                 is_success = faiss_result.get('success') is True or faiss_result.get('status') == 'success'
                 faiss_success = is_success and len(faiss_products) > 0
                 
-                # Extract model information from FAISS response
-                textual_model_used = faiss_result.get('textual_model_name')
-                visual_model_used = faiss_result.get('visual_model_name')
+                # Use the configured models that were actually used for this search
+                textual_model_used = configured_textual_model if has_text else None
+                visual_model_used = configured_visual_model if has_image else None
                 
             else:
                 # Use DB ilike search (semantic disabled)
@@ -350,11 +360,13 @@ class SearchService:
             logger.info(f"[Search] ━━━ STEP 2: SEARCH EXECUTION ━━━")
             start_search = time.time()
             
-            textual_model_used = None
-            visual_model_used = None
+            # Get configured models and fusion endpoint from settings
+            selected_models = get_selected_models()
+            configured_fusion = selected_models.get('fusion_endpoint', 'late')  # 'late' or 'early'
+            configured_textual_model = selected_models.get('textual_model', 'BAAI/bge-large-en-v1.5')
+            configured_visual_model = selected_models.get('visual_model', 'ViT-B/32')
             
-            # Get configured fusion endpoint from settings
-            configured_fusion = get_selected_fusion_endpoint()  # 'late' or 'early'
+            logger.info(f"[Search] ⚙️  Configured Models - Textual: {configured_textual_model}, Visual: {configured_visual_model}")
             
             if semantic_search_enabled:
                 # Use FAISS for semantic search
@@ -373,6 +385,7 @@ class SearchService:
                         faiss_result = faiss_service.search_early_fusion(
                             text=raw_text,
                             image_path=image,
+                            fused_model_name=configured_visual_model,
                             top_k=10
                         )
                     else:
@@ -382,6 +395,8 @@ class SearchService:
                         faiss_result = faiss_service.search_late_fusion(
                             text=raw_text,
                             image_path=image,
+                            textual_model_name=configured_textual_model,
+                            visual_model_name=configured_visual_model,
                             top_k=10
                         )
                         
@@ -391,6 +406,7 @@ class SearchService:
                     logger.info(f"[Search] 🖼️  Mode: Image-only Search")
                     faiss_result = faiss_service.search_image(
                         image_path=image,
+                        visual_model_name=configured_visual_model,
                         top_k=10
                     )
                 else:
@@ -399,6 +415,7 @@ class SearchService:
                     logger.info(f"[Search] 📝 Mode: Text-only Search")
                     faiss_result = faiss_service.search_text(
                         text=raw_text,
+                        textual_model_name=configured_textual_model,
                         top_k=10
                     )
                 
@@ -407,9 +424,9 @@ class SearchService:
                 is_success = faiss_result.get('success') is True or faiss_result.get('status') == 'success'
                 faiss_success = is_success and len(faiss_products) > 0
                 
-                # Extract model information
-                textual_model_used = faiss_result.get('textual_model_name')
-                visual_model_used = faiss_result.get('visual_model_name')
+                # Use the configured models that were actually used for this search
+                textual_model_used = configured_textual_model if has_text else None
+                visual_model_used = configured_visual_model if has_image else None
                 
             else:
                 # Use DB ilike search (semantic disabled)
@@ -417,6 +434,8 @@ class SearchService:
                 faiss_success = False
                 faiss_result = {}
                 faiss_products = []
+                textual_model_used = None
+                visual_model_used = None
                 fusion_type_actual = 'text_only'
             
             search_duration = (time.time() - start_search) * 1000
@@ -658,7 +677,8 @@ class SearchService:
                             logger.warning(f"[Search] Failed to read image {file_path}: {e}")
                 
                 score = float(row[3]) if row[3] else None
-                if score is not None and score <= 0.465:
+                # Apply score threshold only for text-only searches
+                if fusion_type == 'text_only' and score is not None and score <= 0.465:
                     continue
 
                 product_data = {
