@@ -129,6 +129,10 @@ def search():
     Query Parameters (as form data):
     - raw_text (optional): User's search query (required if no image provided)
     - images: Optional image file(s) for visual search (required if no text provided)
+        - search_mode: Search mode ('std', 'iwt', 'twi')
+            - std: Normal search flow (text/image/late/early fusion)
+            - iwt: Image-by-text (text -> visual index)
+            - twi: Text-by-image (image -> textual index)
     - engine: Correction engine to use ('symspell', 'byt5')
     - correction_enabled: 'true' or 'false' (default: true)
 
@@ -179,12 +183,26 @@ def search():
 
         # Get raw_text (now optional if image is provided)
         raw_text = form_data.get("raw_text", "")
+        search_mode = (form_data.get("search_mode") or "std").strip().lower()
 
-        # Validate that at least one of text or image is provided
+        if search_mode not in {"std", "iwt", "twi"}:
+            return jsonify(
+                {
+                    "error": "Invalid search_mode. Allowed values: 'std', 'iwt', 'twi'"
+                }
+            ), 400
+
+        # Validate request payload according to selected search mode
         has_text = raw_text and raw_text.strip()
         has_image = bool(image)
 
-        if not has_text and not has_image:
+        if search_mode == "iwt" and not has_text:
+            return jsonify({"error": "'raw_text' is required for search_mode='iwt'"}), 400
+
+        if search_mode == "twi" and not has_image:
+            return jsonify({"error": "'image' is required for search_mode='twi'"}), 400
+
+        if search_mode == "std" and not has_text and not has_image:
             print(
                 "DEBUG [routes/search.py]: Missing both 'raw_text' and 'image' in request"
             )
@@ -202,7 +220,9 @@ def search():
         print(
             f"DEBUG [routes/search.py]: Extracted raw_text='{raw_text}', engine='{engine}'"
         )
-        print(f"DEBUG [routes/search.py]: Toggles: correction={correction_enabled}")
+        print(
+            f"DEBUG [routes/search.py]: Toggles: correction={correction_enabled}, search_mode={search_mode}"
+        )
 
         # Execute search through service with toggles
         print("DEBUG [routes/search.py]: Calling SearchService.execute_search...")
@@ -212,6 +232,7 @@ def search():
             engine=engine,
             semantic_search_enabled=True,  # Always true
             correction_enabled=correction_enabled,
+            search_mode=search_mode,
         )
         print(f"DEBUG [routes/search.py]: SearchService returned: {result}")
 
