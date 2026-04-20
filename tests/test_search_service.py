@@ -74,6 +74,72 @@ def mock_product_query():
 
 class TestSearchService:
 
+    @patch('services.search_service.get_selected_models')
+    @patch('services.search_service.SearchTime')
+    @patch('services.search_service.Retrieve')
+    @patch('services.search_service.SearchQuery')
+    def test_execute_search_persists_query_image_path(
+        self,
+        MockSearchQuery,
+        MockRetrieve,
+        MockSearchTime,
+        mock_get_selected_models,
+        mock_db,
+        mock_text_corrector,
+        mock_faiss,
+    ):
+        mock_sq_instance = MagicMock()
+        mock_sq_instance.search_id = 321
+        MockSearchQuery.return_value = mock_sq_instance
+        mock_get_selected_models.return_value = {
+            'fusion_endpoint': 'late',
+            'textual_model': 'text-model',
+            'visual_model': 'vision-model',
+        }
+
+        result = SearchService.execute_search(
+            "text with image",
+            image="uploads/products/query.jpg",
+        )
+
+        assert result == {'search_id': 321}
+        assert MockSearchQuery.call_args.kwargs['query_image_path'] == "uploads/products/query.jpg"
+
+    @patch('services.search_service.build_query_image_response')
+    @patch('services.search_service.SearchQuery')
+    def test_get_search_by_id_returns_persisted_query_image(
+        self,
+        MockSearchQuery,
+        mock_build_query_image_response,
+        mock_db,
+    ):
+        mock_sq = MagicMock()
+        mock_sq.raw_text = "telefon"
+        mock_sq.corrected_text = "telefon"
+        mock_sq.query_image_path = "uploads/products/query.jpg"
+        MockSearchQuery.query.get.return_value = mock_sq
+        mock_build_query_image_response.return_value = {
+            "filename": "query.jpg",
+            "url": "/uploads/products/query.jpg",
+            "data_url": "data:image/jpeg;base64,ZmFrZQ==",
+        }
+
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        mock_db.session.execute.return_value = mock_result
+
+        result = SearchService.get_search_by_id(77)
+
+        assert result is not None
+        assert result["query_image"] == {
+            "filename": "query.jpg",
+            "url": "/uploads/products/query.jpg",
+            "data_url": "data:image/jpeg;base64,ZmFrZQ==",
+        }
+        mock_build_query_image_response.assert_called_once_with(
+            "uploads/products/query.jpg"
+        )
+
     @patch('services.search_service.SearchTime')
     @patch('services.search_service.Retrieve')
     @patch('services.search_service.SearchQuery')

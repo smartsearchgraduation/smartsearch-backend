@@ -77,6 +77,41 @@ def convert_to_jpg(image_path: str) -> str:
 logger = logging.getLogger(__name__)
 
 
+def build_query_image_response(image_path: Optional[str]) -> Optional[Dict[str, Any]]:
+    """
+    Build a stable response payload for a stored search image.
+
+    The path itself stays internal; the API exposes a served URL and, when the
+    file is available, an inline data URL for immediate rendering.
+    """
+    if not image_path:
+        return None
+
+    filename = os.path.basename(image_path)
+    image_response = {
+        "filename": filename,
+        "url": f"/uploads/products/{filename}",
+        "data_url": None,
+    }
+
+    try:
+        with open(image_path, "rb") as image_file:
+            image_bytes = image_file.read()
+
+        mime_type, _ = mimetypes.guess_type(image_path)
+        if not mime_type:
+            mime_type = "image/jpeg"
+
+        image_response["data_url"] = (
+            f"data:{mime_type};base64,"
+            f"{base64.b64encode(image_bytes).decode('utf-8')}"
+        )
+    except Exception as e:
+        logger.warning(f"[Search] Failed to encode query image '{image_path}': {e}")
+
+    return image_response
+
+
 class SearchService:
     """
     The heart of our search functionality.
@@ -199,7 +234,7 @@ class SearchService:
                     logger.info(f"[Search] 🔀 Mode: IWT (image-by-text)")
                     faiss_result = faiss_service.search_image_by_text(
                         text=corrected_text,
-                        visual_model_name=configured_visual_model,
+                        fused_model_name=configured_visual_model,
                         top_k=10,
                     )
                     textual_model_used = None
@@ -213,7 +248,7 @@ class SearchService:
                     logger.info(f"[Search] 🔀 Mode: TWI (text-by-image)")
                     faiss_result = faiss_service.search_text_by_image(
                         image_path=image,
-                        textual_model_name=configured_textual_model,
+                        fused_model_name=configured_textual_model,
                         top_k=10,
                     )
                     textual_model_used = configured_textual_model
@@ -378,7 +413,11 @@ class SearchService:
             logger.info(f"[Search] ━━━ STEP 4: SAVE TO DATABASE ━━━")
             start_db_save = time.time()
 
-            search_query = SearchQuery(raw_text=raw_text, corrected_text=corrected_text)
+            search_query = SearchQuery(
+                raw_text=raw_text,
+                corrected_text=corrected_text,
+                query_image_path=image,
+            )
             db.session.add(search_query)
             db.session.flush()
 
@@ -680,6 +719,7 @@ class SearchService:
             new_search_query = SearchQuery(
                 raw_text=raw_text,
                 corrected_text=raw_text,  # Same as raw_text since we skip correction
+                query_image_path=getattr(search_query, "query_image_path", None),
             )
             db.session.add(new_search_query)
             db.session.flush()  # Need the search_id before we can save results
@@ -782,6 +822,8 @@ class SearchService:
             if not search_query:
                 return None
 
+            query_image = build_query_image_response(search_query.query_image_path)
+
             # Use raw SQL here since we need some complex joins and aggregations
             sql = """
                 SELECT
@@ -830,6 +872,7 @@ class SearchService:
                     "search_id": search_id,
                     "raw_text": search_query.raw_text,
                     "corrected_text": search_query.corrected_text,
+                    "query_image": query_image,
                     "products": [],
                 }
 
@@ -904,6 +947,7 @@ class SearchService:
                 "search_id": search_id,
                 "raw_text": raw_text,
                 "corrected_text": corrected_text,
+                "query_image": query_image,
                 "fusion_type": fusion_type,
                 "textual_model_name": textual_model,
                 "visual_model_name": visual_model,

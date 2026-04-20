@@ -302,7 +302,12 @@ Execute a search query.
 **Response (201):**
 ```json
 {
-  "search_id": 123
+  "search_id": 123,
+  "query_image": {
+    "filename": "search_abc123.jpg",
+    "url": "/uploads/products/search_abc123.jpg",
+    "data_url": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
+  }
 }
 ```
 
@@ -310,7 +315,8 @@ Execute a search query.
 1. Calls Text Corrector service
 2. Calls FAISS service (or falls back to DB)
 3. Records query and results
-4. Returns only `search_id`
+4. Returns `search_id`
+5. If an image was provided, echoes it back as `query_image`
 
 ---
 
@@ -322,17 +328,26 @@ Get search results with full product details.
 ```json
 {
   "search_id": 123,
+  "raw_text": "iphone 15 pro",
   "corrected_text": "iphone 15 pro",
-  "results": [
+  "query_image": {
+    "filename": "search_abc123.jpg",
+    "url": "/uploads/products/search_abc123.jpg",
+    "data_url": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
+  },
+  "products": [
     {
       "product_id": 456,
       "name": "iPhone 15 Pro",
       "price": 54999.90,
       "rank": 1,
       "score": 0.98,
-      "brand": "Apple",
-      "image_url": "https://cdn.example.com/iphone15.jpg",
-      "categories": ["Elektronik", "Akıllı Telefon"]
+      "brand": {
+        "brand_id": 12,
+        "name": "Apple"
+      },
+      "images": ["data:image/jpeg;base64,/9j/4AAQSkZJRg..."],
+      "is_relevant": null
     }
   ]
 }

@@ -352,7 +352,7 @@ class FAISSRetrievalService:
             return {"status": "error", "error": str(e)}
 
     def search_image_by_text(
-        self, text: str, visual_model_name: str = "ViT-B/32", top_k: int = 10
+        self, text: str, fused_model_name: str = "ViT-B/32", top_k: int = 10
     ) -> Dict[str, Any]:
         """
         Cross-modal search: Find product images using a text query.
@@ -363,7 +363,7 @@ class FAISSRetrievalService:
 
         Args:
             text: The text query to search for images
-            visual_model_name: CLIP model to use (default: ViT-B/32)
+            fused_model_name: CLIP model to use (default: ViT-B/32)
             top_k: Maximum number of results to return
 
         Returns:
@@ -378,11 +378,11 @@ class FAISSRetrievalService:
 
         try:
             logger.info(
-                f"[FAISS] Image-by-text search: '{text}' (model={visual_model_name})"
+                f"[FAISS] Image-by-text search: '{text}' (model={fused_model_name})"
             )
             payload = {
                 "text": text,
-                "visual_model_name": visual_model_name,
+                "fused_model_name": fused_model_name,
                 "top_k": top_k,
             }
             response = requests.post(self.image_by_text_url, json=payload, timeout=10)
@@ -416,7 +416,7 @@ class FAISSRetrievalService:
             return {"status": "error", "error": str(e)}
 
     def search_text_by_image(
-        self, image_path: str, textual_model_name: str = "ViT-B/32", top_k: int = 10
+        self, image_path: str, fused_model_name: str = "ViT-B/32", top_k: int = 10
     ) -> Dict[str, Any]:
         """
         Cross-modal search: Find product text descriptions using an image query.
@@ -427,7 +427,7 @@ class FAISSRetrievalService:
 
         Args:
             image_path: Full path to the query image file
-            textual_model_name: CLIP model to use (default: ViT-B/32)
+            fused_model_name: CLIP model to use (default: ViT-B/32)
             top_k: Maximum number of results to return
 
         Returns:
@@ -442,11 +442,11 @@ class FAISSRetrievalService:
 
         try:
             logger.info(
-                f"[FAISS] Text-by-image search: '{image_path}' (model={textual_model_name})"
+                f"[FAISS] Text-by-image search: '{image_path}' (model={fused_model_name})"
             )
             payload = {
                 "image": image_path,
-                "textual_model_name": textual_model_name,
+                "fused_model_name": fused_model_name,
                 "top_k": top_k,
             }
             response = requests.post(self.text_by_image_url, json=payload, timeout=15)

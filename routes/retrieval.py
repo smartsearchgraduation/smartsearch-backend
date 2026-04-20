@@ -218,7 +218,7 @@ def search_image_by_text():
 
     Request body:
         - text: Search query text (required)
-        - visual_model_name: CLIP model to use (default: ViT-B/32)
+        - fused_model_name: CLIP model to use (default: ViT-B/32)
         - top_k: Number of results (default: 10)
     """
     try:
@@ -237,7 +237,7 @@ def search_image_by_text():
 
         result = faiss_service.search_image_by_text(
             text=text,
-            visual_model_name=data.get("visual_model_name", "ViT-B/32"),
+            fused_model_name=data.get("fused_model_name", "ViT-B/32"),
             top_k=data.get("top_k", 10),
         )
 
@@ -262,7 +262,7 @@ def search_text_by_image():
 
     Request body:
         - image: Path to image file (required)
-        - textual_model_name: CLIP model to use (default: ViT-B/32)
+        - fused_model_name: CLIP model to use (default: ViT-B/32)
         - top_k: Number of results (default: 10)
     """
     try:
@@ -281,7 +281,7 @@ def search_text_by_image():
 
         result = faiss_service.search_text_by_image(
             image_path=image,
-            textual_model_name=data.get("textual_model_name", "ViT-B/32"),
+            fused_model_name=data.get("fused_model_name", "ViT-B/32"),
             top_k=data.get("top_k", 10),
         )
 
