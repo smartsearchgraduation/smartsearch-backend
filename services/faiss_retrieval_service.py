@@ -1053,6 +1053,50 @@ class FAISSRetrievalService:
             logger.error(f"[FAISS] Error fetching models: {e}, using local config")
             return self._get_local_models()
 
+    def get_available_model_ids(self) -> List[str]:
+        """
+        Return the set of model identifiers exposed by FAISS, or local config as fallback.
+
+        The FAISS service may return model objects with either `id` or `name`.
+        Local fallback currently returns only `name`, so we normalize both shapes here.
+        """
+        result = self.get_available_models()
+        data = result.get("data", result)
+
+        def extract_ids(entries: Any) -> List[str]:
+            model_ids = []
+            for entry in entries or []:
+                if isinstance(entry, str):
+                    model_ids.append(entry)
+                    continue
+
+                if not isinstance(entry, dict):
+                    continue
+
+                model_id = entry.get("id") or entry.get("name")
+                if model_id:
+                    model_ids.append(model_id)
+
+            return model_ids
+
+        available_ids = []
+        if isinstance(data, dict):
+            available_ids.extend(extract_ids(data.get("textual_models")))
+            available_ids.extend(extract_ids(data.get("visual_models")))
+            available_ids.extend(extract_ids(data.get("models")))
+
+        deduped_ids = list(dict.fromkeys(available_ids))
+        if deduped_ids:
+            return deduped_ids
+
+        try:
+            from config.models import AVAILABLE_MODELS
+
+            return list(AVAILABLE_MODELS.keys())
+        except Exception as e:
+            logger.error(f"[FAISS] Failed to load fallback model IDs: {e}")
+            return []
+
     def get_index_stats(self) -> Dict[str, Any]:
         """
         Get index statistics for all models.

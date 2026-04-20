@@ -16,13 +16,18 @@ from config.models import (
     AVAILABLE_MODELS,
     DEFAULT_TEXTUAL_MODEL,
     DEFAULT_VISUAL_MODEL,
-    is_valid_model,
     get_selected_models,
 )
 
 logger = logging.getLogger(__name__)
 
 bulk_faiss_bp = Blueprint("bulk_faiss", __name__, url_prefix="/api/bulk-faiss")
+
+
+def _get_valid_model_ids():
+    """Use the FAISS-advertised model catalog when available, otherwise local config."""
+    model_ids = faiss_service.get_available_model_ids()
+    return model_ids or list(AVAILABLE_MODELS.keys())
 
 
 # HTML template for the bulk import page
@@ -658,20 +663,22 @@ def add_all_products():
     wait_duration_seconds = data.get("wait_duration_seconds", 60)
     delay_between_products_ms = data.get("delay_between_products_ms", 0)
 
+    available_model_ids = _get_valid_model_ids()
+
     # Validate model names
-    if not is_valid_model(textual_model_name):
+    if textual_model_name not in available_model_ids:
         return jsonify(
             {
                 "status": "error",
-                "error": f"Invalid textual model: {textual_model_name}. Available: {list(AVAILABLE_MODELS.keys())}",
+                "error": f"Invalid textual model: {textual_model_name}. Available: {available_model_ids}",
             }
         ), 400
 
-    if not is_valid_model(visual_model_name):
+    if visual_model_name not in available_model_ids:
         return jsonify(
             {
                 "status": "error",
-                "error": f"Invalid visual model: {visual_model_name}. Available: {list(AVAILABLE_MODELS.keys())}",
+                "error": f"Invalid visual model: {visual_model_name}. Available: {available_model_ids}",
             }
         ), 400
 
@@ -992,20 +999,22 @@ def rebuild_with_test():
         wait_duration_seconds = data.get("wait_duration_seconds", 60)
         delay_between_products_ms = data.get("delay_between_products_ms", 0)
 
+        available_model_ids = _get_valid_model_ids()
+
         # Validate model names
-        if not is_valid_model(textual_model_name):
+        if textual_model_name not in available_model_ids:
             return jsonify(
                 {
                     "status": "error",
-                    "error": f"Invalid textual model: {textual_model_name}. Available: {list(AVAILABLE_MODELS.keys())}",
+                    "error": f"Invalid textual model: {textual_model_name}. Available: {available_model_ids}",
                 }
             ), 400
 
-        if not is_valid_model(visual_model_name):
+        if visual_model_name not in available_model_ids:
             return jsonify(
                 {
                     "status": "error",
-                    "error": f"Invalid visual model: {visual_model_name}. Available: {list(AVAILABLE_MODELS.keys())}",
+                    "error": f"Invalid visual model: {visual_model_name}. Available: {available_model_ids}",
                 }
             ), 400
 
