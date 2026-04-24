@@ -11,7 +11,7 @@ import re
 from flask import Blueprint, request, jsonify, current_app
 
 from models import db
-from services.search_service import SearchService, build_query_image_response
+from services.search_service import SearchService
 from config.models import get_selected_fusion_endpoint
 
 logger = logging.getLogger(__name__)
@@ -143,7 +143,6 @@ def search():
     - db_fallback: when FAISS fails
 
     Returns a search_id you can use with GET /search/<id> to fetch results.
-    If the request included an image, we also echo that image back for preview.
     """
     start_time = time.time()
     try:
@@ -242,13 +241,7 @@ def search():
             f"[Search Route] 🏁 Total Request Time (incl. Flask): {duration:.2f}ms"
         )
 
-        response_payload = {"search_id": result["search_id"]}
-
-        query_image = build_query_image_response(image)
-        if query_image:
-            response_payload["query_image"] = query_image
-
-        return jsonify(response_payload), 201
+        return jsonify({"search_id": result["search_id"]}), 201
 
     except ValueError as e:
         logger.error(f"[Search] Value error: {e}")

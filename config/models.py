@@ -33,6 +33,7 @@ AVAILABLE_MODELS = {
 # Default model settings
 DEFAULT_TEXTUAL_MODEL = "BAAI/bge-large-en-v1.5"
 DEFAULT_VISUAL_MODEL = "ViT-B/32"
+DEFAULT_FUSED_MODEL = DEFAULT_VISUAL_MODEL
 DEFAULT_FUSION_ENDPOINT = "late"  # 'late' or 'early'
 
 # Model groups for UI organization
@@ -95,6 +96,15 @@ def get_model_info(model_id: str):
     }
 
 
+def resolve_fused_model(textual: str, visual: str, fused_model: str = None, fallback: str = None) -> str:
+    """Resolve the fused model for shared-embedding searches."""
+    if fused_model:
+        return fused_model
+    if textual and visual and textual == visual:
+        return textual
+    return fallback or DEFAULT_FUSED_MODEL
+
+
 def get_selected_models():
     """
     Get currently selected models from config file.
@@ -119,12 +129,18 @@ def get_selected_models():
             # Ensure fusion_endpoint exists (backward compatibility)
             if 'fusion_endpoint' not in config:
                 config['fusion_endpoint'] = DEFAULT_FUSION_ENDPOINT
+            config['fused_model'] = resolve_fused_model(
+                config.get('textual_model'),
+                config.get('visual_model'),
+                config.get('fused_model') or config.get('fused_model_name'),
+            )
             return config
     except FileNotFoundError:
         # Return defaults if config doesn't exist
         return {
             "textual_model": DEFAULT_TEXTUAL_MODEL,
             "visual_model": DEFAULT_VISUAL_MODEL,
+            "fused_model": DEFAULT_FUSED_MODEL,
             "fusion_endpoint": DEFAULT_FUSION_ENDPOINT,
             "last_updated": None
         }
@@ -144,7 +160,7 @@ def get_selected_fusion_endpoint():
     return models.get('fusion_endpoint', DEFAULT_FUSION_ENDPOINT)
 
 
-def save_selected_models(textual: str, visual: str, fusion_endpoint: str = None):
+def save_selected_models(textual: str, visual: str, fusion_endpoint: str = None, fused_model: str = None):
     """
     Save selected models to config file.
 
@@ -152,9 +168,10 @@ def save_selected_models(textual: str, visual: str, fusion_endpoint: str = None)
         textual: Textual model name
         visual: Visual model name
         fusion_endpoint: Optional fusion endpoint ('late' or 'early')
+        fused_model: Optional fused/shared-embedding model name
 
     Usage:
-        save_selected_models('ViT-L/14', 'ViT-L/14', 'early')
+        save_selected_models('ViT-L/14', 'ViT-L/14', 'early', 'ViT-L/14')
     """
     import json
     import os
@@ -168,6 +185,12 @@ def save_selected_models(textual: str, visual: str, fusion_endpoint: str = None)
     config = {
         "textual_model": textual,
         "visual_model": visual,
+        "fused_model": resolve_fused_model(
+            textual,
+            visual,
+            fused_model,
+            existing.get('fused_model', DEFAULT_FUSED_MODEL),
+        ),
         "fusion_endpoint": fusion_endpoint or existing.get('fusion_endpoint', DEFAULT_FUSION_ENDPOINT),
         "last_updated": datetime.utcnow().isoformat() + "Z"
     }
@@ -192,7 +215,8 @@ def save_selected_fusion_endpoint(fusion_endpoint: str):
     save_selected_models(
         textual=models['textual_model'],
         visual=models['visual_model'],
-        fusion_endpoint=fusion_endpoint
+        fusion_endpoint=fusion_endpoint,
+        fused_model=models.get('fused_model')
     )
 
 

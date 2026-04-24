@@ -18,23 +18,16 @@ def client():
 
 
 @patch("routes.search.get_selected_fusion_endpoint", return_value="late")
-@patch("routes.search.build_query_image_response")
 @patch("routes.search.save_search_image")
 @patch("routes.search.SearchService.execute_search")
-def test_search_returns_query_image_for_uploaded_file(
+def test_search_returns_only_search_id_for_uploaded_file(
     mock_execute_search,
     mock_save_search_image,
-    mock_build_query_image_response,
     mock_get_selected_fusion_endpoint,
     client,
 ):
     mock_execute_search.return_value = {"search_id": 42}
     mock_save_search_image.return_value = "uploads/products/search_test.jpg"
-    mock_build_query_image_response.return_value = {
-        "filename": "search_test.jpg",
-        "url": "/uploads/products/search_test.jpg",
-        "data_url": "data:image/jpeg;base64,ZmFrZQ==",
-    }
 
     response = client.post(
         "/api/search",
@@ -46,14 +39,7 @@ def test_search_returns_query_image_for_uploaded_file(
     )
 
     assert response.status_code == 201
-    assert response.get_json() == {
-        "search_id": 42,
-        "query_image": {
-            "filename": "search_test.jpg",
-            "url": "/uploads/products/search_test.jpg",
-            "data_url": "data:image/jpeg;base64,ZmFrZQ==",
-        },
-    }
+    assert response.get_json() == {"search_id": 42}
 
     mock_save_search_image.assert_called_once()
     mock_execute_search.assert_called_once_with(
@@ -63,9 +49,6 @@ def test_search_returns_query_image_for_uploaded_file(
         semantic_search_enabled=True,
         correction_enabled=True,
         search_mode="std",
-    )
-    mock_build_query_image_response.assert_called_once_with(
-        "uploads/products/search_test.jpg"
     )
 
 

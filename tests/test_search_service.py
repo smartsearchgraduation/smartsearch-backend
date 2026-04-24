@@ -105,6 +105,49 @@ class TestSearchService:
         assert result == {'search_id': 321}
         assert MockSearchQuery.call_args.kwargs['query_image_path'] == "uploads/products/query.jpg"
 
+    @patch('services.search_service.get_selected_models')
+    @patch('services.search_service.convert_to_jpg', return_value='uploads/products/query.jpg')
+    @patch('services.search_service.SearchTime')
+    @patch('services.search_service.Retrieve')
+    @patch('services.search_service.SearchQuery')
+    def test_execute_search_uses_configured_fused_model_for_early_fusion(
+        self,
+        MockSearchQuery,
+        MockRetrieve,
+        MockSearchTime,
+        mock_convert_to_jpg,
+        mock_get_selected_models,
+        mock_db,
+        mock_text_corrector,
+        mock_faiss,
+    ):
+        mock_sq_instance = MagicMock()
+        mock_sq_instance.search_id = 322
+        MockSearchQuery.return_value = mock_sq_instance
+        mock_faiss.search_early_fusion.return_value = {
+            'products': [{'product_id': 7, 'score': 0.91}],
+            'success': True,
+            'status': 'success',
+        }
+        mock_get_selected_models.return_value = {
+            'fusion_endpoint': 'early',
+            'textual_model': 'text-model',
+            'visual_model': 'vision-model',
+            'fused_model': 'fused-model',
+        }
+
+        SearchService.execute_search(
+            "text with image",
+            image="uploads/products/query.png",
+        )
+
+        mock_faiss.search_early_fusion.assert_called_once_with(
+            text='corrected query',
+            image_path='uploads/products/query.jpg',
+            fused_model_name='fused-model',
+            top_k=10,
+        )
+
     @patch('services.search_service.build_query_image_response')
     @patch('services.search_service.SearchQuery')
     def test_get_search_by_id_returns_persisted_query_image(

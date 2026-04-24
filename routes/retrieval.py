@@ -10,6 +10,7 @@ from flask import Blueprint, request, jsonify, current_app, render_template_stri
 from services.faiss_retrieval_service import faiss_service
 from config.models import (
     get_selected_models,
+    resolve_fused_model,
     save_selected_models,
     get_selected_fusion_endpoint,
     save_selected_fusion_endpoint,
@@ -26,6 +27,11 @@ def _get_valid_model_ids():
     """Use the FAISS-advertised model catalog when available, otherwise local config."""
     model_ids = faiss_service.get_available_model_ids()
     return model_ids or list(AVAILABLE_MODELS.keys())
+
+
+def _get_requested_fused_model(data):
+    """Accept both frontend/admin naming variants for fused model selection."""
+    return data.get("fused_model") or data.get("fused_model_name")
 
 
 @retrieval_bp.route("/search/text", methods=["POST"])
@@ -327,7 +333,11 @@ def add_product():
         images = data.get("images", [])
         textual_model_name = data.get("textual_model_name", "ViT-B/32")
         visual_model_name = data.get("visual_model_name", "ViT-B/32")
-        fused_model_name = data.get("fused_model_name", "ViT-B/32")
+        fused_model_name = (
+            data.get("fused_model_name")
+            or data.get("fused_model")
+            or resolve_fused_model(textual_model_name, visual_model_name)
+        )
 
         # Validate required fields
         if not product_id:
@@ -406,7 +416,11 @@ def update_product(product_id):
         images = data.get("images", [])
         textual_model_name = data.get("textual_model_name", "ViT-B/32")
         visual_model_name = data.get("visual_model_name", "ViT-B/32")
-        fused_model_name = data.get("fused_model_name", "ViT-B/32")
+        fused_model_name = (
+            data.get("fused_model_name")
+            or data.get("fused_model")
+            or resolve_fused_model(textual_model_name, visual_model_name)
+        )
 
         # Validate price
         try:
@@ -682,6 +696,14 @@ def save_selected_models_endpoint():
 
         textual_model = data.get("textual_model")
         visual_model = data.get("visual_model")
+        requested_fused_model = _get_requested_fused_model(data)
+        current_models = get_selected_models()
+        fused_model = resolve_fused_model(
+            textual_model,
+            visual_model,
+            requested_fused_model,
+            current_models.get("fused_model"),
+        )
         fusion_endpoint = data.get("fusion_endpoint")  # Optional
 
         # Validate required fields
@@ -712,6 +734,14 @@ def save_selected_models_endpoint():
                 }
             ), 400
 
+        if requested_fused_model and fused_model not in available_model_ids:
+            return jsonify(
+                {
+                    "status": "error",
+                    "error": f"Invalid fused model: {fused_model}. Available: {available_model_ids}",
+                }
+            ), 400
+
         # Validate fusion_endpoint if provided
         if fusion_endpoint and not is_valid_fusion_endpoint(fusion_endpoint):
             return jsonify(
@@ -722,10 +752,10 @@ def save_selected_models_endpoint():
             ), 400
 
         # Save to config (with fusion_endpoint)
-        save_selected_models(textual_model, visual_model, fusion_endpoint)
+        save_selected_models(textual_model, visual_model, fusion_endpoint, fused_model)
 
         logger.info(
-            f"[Retrieval] Models saved - Textual: {textual_model}, Visual: {visual_model}, Fusion: {fusion_endpoint or 'unchanged'}"
+            f"[Retrieval] Models saved - Textual: {textual_model}, Visual: {visual_model}, Fused: {fused_model}, Fusion: {fusion_endpoint or 'unchanged'}"
         )
 
         return jsonify(
@@ -735,6 +765,7 @@ def save_selected_models_endpoint():
                 "data": {
                     "textual_model": textual_model,
                     "visual_model": visual_model,
+                    "fused_model": fused_model,
                     "fusion_endpoint": fusion_endpoint
                     or get_selected_fusion_endpoint(),
                 },
@@ -870,6 +901,13 @@ def save_and_rebuild():
         # Use request values if provided, otherwise use saved values
         textual_model = data.get("textual_model") or current_models.get("textual_model")
         visual_model = data.get("visual_model") or current_models.get("visual_model")
+        requested_fused_model = _get_requested_fused_model(data)
+        fused_model = resolve_fused_model(
+            textual_model,
+            visual_model,
+            requested_fused_model,
+            current_models.get("fused_model"),
+        )
         fusion_endpoint = data.get(
             "fusion_endpoint"
         )  # Optional - None means keep current
@@ -908,6 +946,14 @@ def save_and_rebuild():
                 }
             ), 400
 
+        if requested_fused_model and fused_model not in available_model_ids:
+            return jsonify(
+                {
+                    "status": "error",
+                    "error": f"Invalid fused model: {fused_model}. Available: {available_model_ids}",
+                }
+            ), 400
+
         # Validate fusion_endpoint if provided
         if fusion_endpoint and not is_valid_fusion_endpoint(fusion_endpoint):
             return jsonify(
@@ -920,10 +966,11 @@ def save_and_rebuild():
         # Step 1: Save models to config
         logger.info(
             f"[Rebuild] Step 1/3: Saving models - Textual: {textual_model}, "
-            f"Visual: {visual_model}, Fusion: {fusion_endpoint or 'unchanged (will use existing)'}"
+            f"Visual: {visual_model}, Fused: {fused_model}, Fusion: {fusion_endpoint or 'unchanged (will use existing)'}"
         )
-        save_selected_models(textual_model, visual_model, fusion_endpoint)
+        save_selected_models(textual_model, visual_model, fusion_endpoint, fused_model)
         effective_fusion_endpoint = get_selected_fusion_endpoint()
+        effective_fused_model = fused_model
         logger.info(
             f"[Rebuild] ✅ Saved! Effective fusion endpoint: {effective_fusion_endpoint}"
         )
@@ -1019,6 +1066,7 @@ def save_and_rebuild():
                     images=image_paths,
                     textual_model_name=textual_model,
                     visual_model_name=visual_model,
+                    fused_model_name=effective_fused_model,
                 )
 
                 if result.get("status") == "success":
@@ -1056,6 +1104,7 @@ def save_and_rebuild():
                 "data": {
                     "textual_model": textual_model,
                     "visual_model": visual_model,
+                    "fused_model": effective_fused_model,
                     "fusion_endpoint": effective_fusion_endpoint,
                     "total_products": total_products,
                     "successful_count": successful_count,

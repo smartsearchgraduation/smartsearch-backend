@@ -1083,6 +1083,7 @@ class FAISSRetrievalService:
         if isinstance(data, dict):
             available_ids.extend(extract_ids(data.get("textual_models")))
             available_ids.extend(extract_ids(data.get("visual_models")))
+            available_ids.extend(extract_ids(data.get("fused_models")))
             available_ids.extend(extract_ids(data.get("models")))
 
         deduped_ids = list(dict.fromkeys(available_ids))
@@ -1320,7 +1321,7 @@ class FAISSRetrievalService:
         )
 
     def save_selected_models(
-        self, textual_model: str, visual_model: str
+        self, textual_model: str, visual_model: str, fused_model: str = None
     ) -> Dict[str, Any]:
         """
         Save selected models to FAISS service.
@@ -1331,6 +1332,7 @@ class FAISSRetrievalService:
         Args:
             textual_model: Selected textual embedding model
             visual_model: Selected visual embedding model
+            fused_model: Optional selected fused/shared-embedding model
 
         Returns:
             Result dict with status and saved models
@@ -1347,9 +1349,13 @@ class FAISSRetrievalService:
             )
 
             # POST to FAISS service (simulating admin panel action)
+            payload = {"textual_model": textual_model, "visual_model": visual_model}
+            if fused_model:
+                payload["fused_model"] = fused_model
+
             response = requests.post(
                 f"{self.base_url}/selected-models",  # http://localhost:5002/api/retrieval/selected-models
-                json={"textual_model": textual_model, "visual_model": visual_model},
+                json=payload,
                 timeout=30,
             )
 

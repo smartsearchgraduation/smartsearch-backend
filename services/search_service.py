@@ -18,7 +18,7 @@ from sqlalchemy.orm import joinedload
 from models import db, SearchQuery, Retrieve, Product, SearchTime
 from .text_corrector_service import text_corrector_service
 from .faiss_retrieval_service import faiss_service
-from config.models import get_selected_fusion_endpoint, get_selected_models
+from config.models import get_selected_fusion_endpoint, get_selected_models, resolve_fused_model
 
 try:
     from PIL import Image
@@ -210,9 +210,15 @@ class SearchService:
                 "textual_model", "BAAI/bge-large-en-v1.5"
             )
             configured_visual_model = selected_models.get("visual_model", "ViT-B/32")
+            configured_fused_model = resolve_fused_model(
+                configured_textual_model,
+                configured_visual_model,
+                selected_models.get("fused_model")
+                or selected_models.get("fused_model_name"),
+            )
 
             logger.info(
-                f"[Search] ⚙️  Configured Models - Textual: {configured_textual_model}, Visual: {configured_visual_model}"
+                f"[Search] ⚙️  Configured Models - Textual: {configured_textual_model}, Visual: {configured_visual_model}, Fused: {configured_fused_model}"
             )
 
             if semantic_search_enabled:
@@ -234,11 +240,11 @@ class SearchService:
                     logger.info(f"[Search] 🔀 Mode: IWT (image-by-text)")
                     faiss_result = faiss_service.search_image_by_text(
                         text=corrected_text,
-                        fused_model_name=configured_visual_model,
+                        fused_model_name=configured_fused_model,
                         top_k=10,
                     )
                     textual_model_used = None
-                    visual_model_used = configured_visual_model
+                    visual_model_used = configured_fused_model
 
                 elif search_mode == "twi":
                     if not has_image:
@@ -248,10 +254,10 @@ class SearchService:
                     logger.info(f"[Search] 🔀 Mode: TWI (text-by-image)")
                     faiss_result = faiss_service.search_text_by_image(
                         image_path=image,
-                        fused_model_name=configured_textual_model,
+                        fused_model_name=configured_fused_model,
                         top_k=10,
                     )
-                    textual_model_used = configured_textual_model
+                    textual_model_used = configured_fused_model
                     visual_model_used = None
 
                 else:
@@ -265,9 +271,11 @@ class SearchService:
                             faiss_result = faiss_service.search_early_fusion(
                                 text=corrected_text,
                                 image_path=jpg_image,
-                                fused_model_name=configured_visual_model,
+                                fused_model_name=configured_fused_model,
                                 top_k=10,
                             )
+                            textual_model_used = configured_fused_model
+                            visual_model_used = configured_fused_model
                         else:
                             # Default: late fusion
                             fusion_type_actual = "late_fusion"
@@ -279,6 +287,8 @@ class SearchService:
                                 visual_model_name=configured_visual_model,
                                 top_k=10,
                             )
+                            textual_model_used = configured_textual_model
+                            visual_model_used = configured_visual_model
 
                     elif has_image:
                         # Only image
@@ -289,6 +299,8 @@ class SearchService:
                             visual_model_name=configured_visual_model,
                             top_k=10,
                         )
+                        textual_model_used = None
+                        visual_model_used = configured_visual_model
                     else:
                         # Only text
                         fusion_type_actual = "text_only"
@@ -298,10 +310,8 @@ class SearchService:
                             textual_model_name=configured_textual_model,
                             top_k=10,
                         )
-
-                    # Use the configured models that were actually used for std search
-                    textual_model_used = configured_textual_model if has_text else None
-                    visual_model_used = configured_visual_model if has_image else None
+                        textual_model_used = configured_textual_model
+                        visual_model_used = None
 
                 # Parse FAISS results
                 faiss_products = (
@@ -553,9 +563,15 @@ class SearchService:
                 "textual_model", "BAAI/bge-large-en-v1.5"
             )
             configured_visual_model = selected_models.get("visual_model", "ViT-B/32")
+            configured_fused_model = resolve_fused_model(
+                configured_textual_model,
+                configured_visual_model,
+                selected_models.get("fused_model")
+                or selected_models.get("fused_model_name"),
+            )
 
             logger.info(
-                f"[Search] ⚙️  Configured Models - Textual: {configured_textual_model}, Visual: {configured_visual_model}"
+                f"[Search] ⚙️  Configured Models - Textual: {configured_textual_model}, Visual: {configured_visual_model}, Fused: {configured_fused_model}"
             )
 
             if semantic_search_enabled:
@@ -577,9 +593,11 @@ class SearchService:
                         faiss_result = faiss_service.search_early_fusion(
                             text=raw_text,
                             image_path=image,
-                            fused_model_name=configured_visual_model,
+                            fused_model_name=configured_fused_model,
                             top_k=10,
                         )
+                        textual_model_used = configured_fused_model
+                        visual_model_used = configured_fused_model
                     else:
                         # Default: late fusion
                         fusion_type_actual = "late_fusion"
@@ -591,6 +609,8 @@ class SearchService:
                             visual_model_name=configured_visual_model,
                             top_k=10,
                         )
+                        textual_model_used = configured_textual_model
+                        visual_model_used = configured_visual_model
 
                 elif has_image:
                     # Only image
@@ -601,6 +621,8 @@ class SearchService:
                         visual_model_name=configured_visual_model,
                         top_k=10,
                     )
+                    textual_model_used = None
+                    visual_model_used = configured_visual_model
                 else:
                     # Only text
                     fusion_type_actual = "text_only"
@@ -610,6 +632,8 @@ class SearchService:
                         textual_model_name=configured_textual_model,
                         top_k=10,
                     )
+                    textual_model_used = configured_textual_model
+                    visual_model_used = None
 
                 # Parse FAISS results
                 faiss_products = (
@@ -620,10 +644,6 @@ class SearchService:
                     or faiss_result.get("status") == "success"
                 )
                 faiss_success = is_success and len(faiss_products) > 0
-
-                # Use the configured models that were actually used for this search
-                textual_model_used = configured_textual_model if has_text else None
-                visual_model_used = configured_visual_model if has_image else None
 
             else:
                 # Use DB ilike search (semantic disabled)
@@ -719,7 +739,7 @@ class SearchService:
             new_search_query = SearchQuery(
                 raw_text=raw_text,
                 corrected_text=raw_text,  # Same as raw_text since we skip correction
-                query_image_path=getattr(search_query, "query_image_path", None),
+                query_image_path=image or getattr(original_search, "query_image_path", None),
             )
             db.session.add(new_search_query)
             db.session.flush()  # Need the search_id before we can save results

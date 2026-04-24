@@ -57,4 +57,45 @@ def test_save_and_rebuild_accepts_model_advertised_by_faiss(
         "status": "error",
         "error": "No products found in database",
     }
-    mock_save_selected_models.assert_called_once_with(model_id, model_id, "late")
+    mock_save_selected_models.assert_called_once_with(model_id, model_id, "late", model_id)
+
+
+@patch("routes.retrieval.save_selected_models")
+@patch("routes.retrieval.faiss_service.get_available_models")
+def test_selected_models_accepts_fused_model_advertised_by_faiss(
+    mock_get_available_models,
+    mock_save_selected_models,
+    client,
+):
+    textual_model = "BAAI/bge-large-en-v1.5"
+    visual_model = "facebook/dinov3-vit7b16-pretrain-lvd1689m"
+    fused_model = "Marqo/marqo-ecommerce-embeddings-L"
+    mock_get_available_models.return_value = {
+        "status": "success",
+        "data": {
+            "textual_models": [{"id": textual_model, "name": textual_model}],
+            "visual_models": [{"id": visual_model, "name": visual_model}],
+            "fused_models": [{"id": fused_model, "name": fused_model}],
+        },
+    }
+
+    response = client.post(
+        "/api/retrieval/selected-models",
+        json={
+            "textual_model": textual_model,
+            "visual_model": visual_model,
+            "fused_model": fused_model,
+            "fusion_endpoint": "early",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {
+        "textual_model": textual_model,
+        "visual_model": visual_model,
+        "fused_model": fused_model,
+        "fusion_endpoint": "early",
+    }
+    mock_save_selected_models.assert_called_once_with(
+        textual_model, visual_model, "early", fused_model
+    )
