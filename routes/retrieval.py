@@ -841,22 +841,17 @@ def save_and_rebuild():
     If models not specified in request, uses previously saved values.
 
     Workflow:
-    1. Gets current saved models (or uses request values if provided)
-    2. Saves to config (updates fusion_endpoint if provided)
-    3. Clears FAISS index
-    4. Waits for FAISS initialization
-    5. Adds all products from database
+    1. Saves models to config (updates fusion_endpoint if provided)
+    2. Clears FAISS index
+    3. Adds all products from database immediately
 
     POST Request body (all optional):
         - textual_model: Textual embedding model (defaults to saved)
         - visual_model: Visual embedding model (defaults to saved)
         - fusion_endpoint: 'late' or 'early' (defaults to saved)
-        - wait_duration_seconds: Seconds to wait after clear (default: 60)
     """
     import time
-    from models import db
     from models.product import Product
-    from models.product_image import ProductImage
     from sqlalchemy.orm import joinedload
 
     # GET: Return current settings without rebuilding
@@ -878,8 +873,6 @@ def save_and_rebuild():
         fusion_endpoint = data.get(
             "fusion_endpoint"
         )  # Optional - None means keep current
-        wait_duration_seconds = data.get("wait_duration_seconds", 60)
-
         # DEBUG: Log incoming request
         logger.info(f"[Rebuild] 📥 Request received: {data}")
         logger.info(
@@ -944,16 +937,9 @@ def save_and_rebuild():
                 f"[Rebuild] Clear index returned error: {clear_result.get('error')}, continuing anyway"
             )
 
-        # Step 3: Wait for FAISS initialization
-        logger.info(
-            f"[Rebuild] Step 3/3: Waiting {wait_duration_seconds}s for FAISS initialization..."
-        )
-        time.sleep(wait_duration_seconds)
-        logger.info(
-            f"[Rebuild] ✅ Wait completed ({wait_duration_seconds}s), starting product import"
-        )
+        # Step 3: Add all products from database immediately (no wait)
+        logger.info("[Rebuild] Step 3/3: Starting product import without wait")
 
-        # Step 4: Add all products from database
         products = (
             Product.query.filter_by(is_active=True)
             .options(
@@ -1075,7 +1061,6 @@ def save_and_rebuild():
                     "successful_count": successful_count,
                     "failed_count": failed_count,
                     "total_duration_ms": total_duration,
-                    "wait_duration_seconds": wait_duration_seconds,
                 },
                 "errors": errors[:10],  # Limit to first 10 errors
             }
