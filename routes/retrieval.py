@@ -333,10 +333,10 @@ def add_product():
         images = data.get("images", [])
         textual_model_name = data.get("textual_model_name", "ViT-B/32")
         visual_model_name = data.get("visual_model_name", "ViT-B/32")
-        fused_model_name = (
-            data.get("fused_model_name")
-            or data.get("fused_model")
-            or resolve_fused_model(textual_model_name, visual_model_name)
+        fused_model_name = resolve_fused_model(
+            textual_model_name,
+            visual_model_name,
+            _get_requested_fused_model(data),
         )
 
         # Validate required fields
@@ -416,10 +416,10 @@ def update_product(product_id):
         images = data.get("images", [])
         textual_model_name = data.get("textual_model_name", "ViT-B/32")
         visual_model_name = data.get("visual_model_name", "ViT-B/32")
-        fused_model_name = (
-            data.get("fused_model_name")
-            or data.get("fused_model")
-            or resolve_fused_model(textual_model_name, visual_model_name)
+        fused_model_name = resolve_fused_model(
+            textual_model_name,
+            visual_model_name,
+            _get_requested_fused_model(data),
         )
 
         # Validate price

@@ -98,10 +98,10 @@ def get_model_info(model_id: str):
 
 def resolve_fused_model(textual: str, visual: str, fused_model: str = None, fallback: str = None) -> str:
     """Resolve the fused model for shared-embedding searches."""
-    if fused_model:
-        return fused_model
     if textual and visual and textual == visual:
         return textual
+    if fused_model:
+        return fused_model
     return fallback or DEFAULT_FUSED_MODEL
 
 

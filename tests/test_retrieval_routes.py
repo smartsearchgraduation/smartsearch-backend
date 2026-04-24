@@ -99,3 +99,75 @@ def test_selected_models_accepts_fused_model_advertised_by_faiss(
     mock_save_selected_models.assert_called_once_with(
         textual_model, visual_model, "early", fused_model
     )
+
+
+@patch("routes.retrieval.get_selected_models")
+@patch("routes.retrieval.save_selected_models")
+@patch("routes.retrieval.faiss_service.get_available_models")
+def test_selected_models_sets_fused_to_model_when_textual_and_visual_match(
+    mock_get_available_models,
+    mock_save_selected_models,
+    mock_get_selected_models,
+    client,
+):
+    model_id = "ViT-L/14"
+    stale_fused_model = "ViT-B/32"
+    mock_get_selected_models.return_value = {
+        "textual_model": "BAAI/bge-large-en-v1.5",
+        "visual_model": "facebook/dinov3-vit7b16-pretrain-lvd1689m",
+        "fused_model": stale_fused_model,
+        "fusion_endpoint": "late",
+    }
+    mock_get_available_models.return_value = {
+        "status": "success",
+        "data": {
+            "textual_models": [{"id": model_id, "name": model_id}],
+            "visual_models": [{"id": model_id, "name": model_id}],
+            "fused_models": [{"id": stale_fused_model, "name": stale_fused_model}],
+        },
+    }
+
+    response = client.post(
+        "/api/retrieval/selected-models",
+        json={
+            "textual_model": model_id,
+            "visual_model": model_id,
+            "fused_model": stale_fused_model,
+            "fusion_endpoint": "early",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["data"] == {
+        "textual_model": model_id,
+        "visual_model": model_id,
+        "fused_model": model_id,
+        "fusion_endpoint": "early",
+    }
+    mock_save_selected_models.assert_called_once_with(
+        model_id, model_id, "early", model_id
+    )
+
+
+@patch("routes.retrieval.faiss_service.add_product")
+def test_add_product_sets_fused_to_model_when_textual_and_visual_match(
+    mock_add_product,
+    client,
+):
+    model_id = "ViT-L/14"
+    mock_add_product.return_value = {"status": "success"}
+
+    response = client.post(
+        "/api/retrieval/add-product",
+        json={
+            "id": "product-1",
+            "name": "Test Product",
+            "price": 10,
+            "textual_model_name": model_id,
+            "visual_model_name": model_id,
+            "fused_model_name": "ViT-B/32",
+        },
+    )
+
+    assert response.status_code == 200
+    assert mock_add_product.call_args.kwargs["fused_model_name"] == model_id
