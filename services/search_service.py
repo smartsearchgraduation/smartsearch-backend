@@ -427,6 +427,8 @@ class SearchService:
                 raw_text=raw_text,
                 corrected_text=corrected_text,
                 query_image_path=image,
+                search_mode=search_mode,
+                correction_enabled=correction_enabled,
             )
             db.session.add(search_query)
             db.session.flush()
@@ -740,6 +742,8 @@ class SearchService:
                 raw_text=raw_text,
                 corrected_text=raw_text,  # Same as raw_text since we skip correction
                 query_image_path=image or getattr(original_search, "query_image_path", None),
+                search_mode=getattr(original_search, "search_mode", "std") or "std",
+                correction_enabled=False,
             )
             db.session.add(new_search_query)
             db.session.flush()  # Need the search_id before we can save results
@@ -893,6 +897,10 @@ class SearchService:
                     "raw_text": search_query.raw_text,
                     "corrected_text": search_query.corrected_text,
                     "query_image": query_image,
+                    "search_mode": search_query.search_mode or "std",
+                    "correction_enabled": True
+                    if search_query.correction_enabled is None
+                    else bool(search_query.correction_enabled),
                     "products": [],
                 }
 
@@ -968,6 +976,10 @@ class SearchService:
                 "raw_text": raw_text,
                 "corrected_text": corrected_text,
                 "query_image": query_image,
+                "search_mode": search_query.search_mode or "std",
+                "correction_enabled": True
+                if search_query.correction_enabled is None
+                else bool(search_query.correction_enabled),
                 "fusion_type": fusion_type,
                 "textual_model_name": textual_model,
                 "visual_model_name": visual_model,

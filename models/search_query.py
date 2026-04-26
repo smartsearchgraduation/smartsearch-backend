@@ -14,6 +14,8 @@ class SearchQuery(db.Model):
     raw_text = db.Column(db.Text, nullable=False)
     corrected_text = db.Column(db.Text, nullable=True)
     query_image_path = db.Column(db.Text, nullable=True)
+    search_mode = db.Column(db.String(10), nullable=True, default='std')
+    correction_enabled = db.Column(db.Boolean, nullable=True, default=True)
     type = db.Column(db.String(50), nullable=True)  # 'text', 'voice', 'image'
     time_to_retrieve = db.Column(db.Integer, nullable=True)  # ms
     timestamp = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
@@ -45,6 +47,8 @@ class SearchQuery(db.Model):
             'raw_text': self.raw_text,
             'corrected_text': self.corrected_text,
             'query_image_path': self.query_image_path,
+            'search_mode': self.search_mode or 'std',
+            'correction_enabled': True if self.correction_enabled is None else self.correction_enabled,
             'type': self.type,
             'time_to_retrieve': self.time_to_retrieve,
             'timestamp': self.timestamp.isoformat() if self.timestamp else None

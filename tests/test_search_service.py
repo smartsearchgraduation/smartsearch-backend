@@ -78,7 +78,7 @@ class TestSearchService:
     @patch('services.search_service.SearchTime')
     @patch('services.search_service.Retrieve')
     @patch('services.search_service.SearchQuery')
-    def test_execute_search_persists_query_image_path(
+    def test_execute_search_persists_query_metadata(
         self,
         MockSearchQuery,
         MockRetrieve,
@@ -100,10 +100,14 @@ class TestSearchService:
         result = SearchService.execute_search(
             "text with image",
             image="uploads/products/query.jpg",
+            correction_enabled=False,
+            search_mode="std",
         )
 
         assert result == {'search_id': 321}
         assert MockSearchQuery.call_args.kwargs['query_image_path'] == "uploads/products/query.jpg"
+        assert MockSearchQuery.call_args.kwargs['search_mode'] == "std"
+        assert MockSearchQuery.call_args.kwargs['correction_enabled'] is False
 
     @patch('services.search_service.get_selected_models')
     @patch('services.search_service.convert_to_jpg', return_value='uploads/products/query.jpg')
@@ -160,6 +164,8 @@ class TestSearchService:
         mock_sq.raw_text = "telefon"
         mock_sq.corrected_text = "telefon"
         mock_sq.query_image_path = "uploads/products/query.jpg"
+        mock_sq.search_mode = "iwt"
+        mock_sq.correction_enabled = False
         MockSearchQuery.query.get.return_value = mock_sq
         mock_build_query_image_response.return_value = {
             "filename": "query.jpg",
@@ -179,6 +185,9 @@ class TestSearchService:
             "url": "/uploads/products/query.jpg",
             "data_url": "data:image/jpeg;base64,ZmFrZQ==",
         }
+        assert result["search_mode"] == "iwt"
+        assert result["correction_enabled"] is False
+        assert "query_image_path" not in result
         mock_build_query_image_response.assert_called_once_with(
             "uploads/products/query.jpg"
         )
