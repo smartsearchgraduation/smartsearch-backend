@@ -1,6 +1,7 @@
 {
-  "textual_model": "BAAI/bge-large-en-v1.5",
-  "visual_model": "facebook/dinov3-vit7b16-pretrain-lvd1689m",
+  "textual_model": "ViT-B/32",
+  "visual_model": "ViT-B/32",
+  "fused_model": "ViT-B/32",
   "fusion_endpoint": "late",
-  "last_updated": "2026-04-24T20:26:41.283138Z"
+  "last_updated": "2026-05-04T19:02:31.818306Z"
 }
