@@ -1,10 +1,12 @@
 """
-This module provides the TextCorrectorService, which manages connections to 
+This module provides the TextCorrectorService, which manages connections to
 external microservices for spell-checking and typo correction.
 """
 import os
+import json
 import time
 import logging
+from datetime import datetime
 from typing import Dict, Any, Optional
 
 try:
@@ -19,6 +21,11 @@ logger = logging.getLogger(__name__)
 CORRECTION_SERVICE_URL = os.getenv('CORRECTION_SERVICE_URL', 'http://127.0.0.1:5001/correct')
 CORRECTION_MODELS_URL = os.getenv('CORRECTION_MODELS_URL', 'http://127.0.0.1:5001/models')
 
+# Persisted selection lives next to selected_models.json under config/
+SELECTED_ENGINE_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), '..', 'config', 'selected_correction_engine.json')
+)
+
 # Available correction engines
 ENGINE_SYMSPELL = 'symspell_keyboard'
 ENGINE_BYT5 = 'byt5-small'
@@ -29,6 +36,30 @@ AVAILABLE_CORRECTION_MODELS = {
     ENGINE_SYMSPELL: "SymSpell (Hızlı - Keyboard Based)",
     ENGINE_BYT5: "ByT5 Finetuned (ML Model - Daha Doğru)",
 }
+
+
+def _load_persisted_engine() -> Optional[str]:
+    try:
+        with open(SELECTED_ENGINE_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        engine = data.get('engine')
+        if isinstance(engine, str) and engine.strip():
+            return engine.strip()
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        logger.warning(f"[TextCorrector] Failed to load persisted engine: {e}")
+    return None
+
+
+def _persist_engine(engine: str) -> None:
+    payload = {
+        'engine': engine,
+        'last_updated': datetime.utcnow().isoformat() + 'Z',
+    }
+    os.makedirs(os.path.dirname(SELECTED_ENGINE_PATH), exist_ok=True)
+    with open(SELECTED_ENGINE_PATH, 'w', encoding='utf-8') as f:
+        json.dump(payload, f, indent=2)
 
 
 class TextCorrectorService:
@@ -46,7 +77,10 @@ class TextCorrectorService:
     def __init__(self, base_url: str = None, default_engine: str = None):
         self.base_url = base_url or CORRECTION_SERVICE_URL
         self.models_url = CORRECTION_MODELS_URL
-        self.default_engine = default_engine or DEFAULT_ENGINE
+        persisted = _load_persisted_engine()
+        self.default_engine = default_engine or persisted or DEFAULT_ENGINE
+        if persisted:
+            logger.info(f"[TextCorrector] Loaded persisted engine: '{persisted}'")
     
     def correct(self, raw_text: str, engine: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -188,6 +222,7 @@ class TextCorrectorService:
                     "data": {
                         "engines": engines,
                         "defaults": {"engine": default_engine},
+                        "selected_engine": self.default_engine,
                     },
                     "source": "correction_service"
                 }
@@ -207,9 +242,23 @@ class TextCorrectorService:
 
     def save_selected_engine(self, engine: str) -> Dict[str, Any]:
         """Save the selected correction engine as the new default."""
+        if not engine or not isinstance(engine, str) or not engine.strip():
+            return {
+                "status": "error",
+                "error": "Invalid engine value",
+            }
+        engine = engine.strip()
         old = self.default_engine
         self.default_engine = engine
-        logger.info(f"[TextCorrector] Default engine changed: '{old}' -> '{engine}'")
+        try:
+            _persist_engine(engine)
+        except Exception as e:
+            logger.error(f"[TextCorrector] Failed to persist engine '{engine}': {e}")
+            return {
+                "status": "error",
+                "error": f"Failed to persist engine: {e}",
+            }
+        logger.info(f"[TextCorrector] Default engine changed: '{old}' -> '{engine}' (persisted)")
         return {
             "status": "success",
             "message": f"Correction engine saved: {engine}",
@@ -234,6 +283,7 @@ class TextCorrectorService:
                 "data": {
                     "engines": engines,
                     "defaults": {"engine": self.default_engine},
+                    "selected_engine": self.default_engine,
                 },
                 "source": "local_config"
             }

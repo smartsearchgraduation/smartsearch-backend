@@ -12,6 +12,7 @@ AVAILABLE_MODELS = {
     "ViT-L/14": {"name": "ViT-L/14", "dimension": 768},
     "ViT-L/14@336px": {"name": "ViT-L/14@336px", "dimension": 768},
     "BAAI/bge-large-en-v1.5": {"name": "BAAI/bge-large-en-v1.5", "dimension": 1024},
+    "BAAI/bge-large-finetuned": {"name": "BAAI/bge-large-finetuned", "dimension": 1024},
 
     # Qwen embedding model
     "Qwen/Qwen3-Embedding-8B": {"name": "Qwen/Qwen3-Embedding-8B", "dimension": 4096},
@@ -38,7 +39,7 @@ DEFAULT_FUSION_ENDPOINT = "late"  # 'late' or 'early'
 
 # Model groups for UI organization
 MODEL_GROUPS = {
-    "ViT (Önerilen)": ["ViT-B/32", "ViT-B/16", "ViT-L/14", "ViT-L/14@336px", "BAAI/bge-large-en-v1.5"],
+    "ViT (Önerilen)": ["ViT-B/32", "ViT-B/16", "ViT-L/14", "ViT-L/14@336px", "BAAI/bge-large-en-v1.5", "BAAI/bge-large-finetuned"],
     "Qwen": ["Qwen/Qwen3-Embedding-8B"],
     "DINOv3 (Vision Only)": ["facebook/dinov3-vit7b16-pretrain-lvd1689m"],
     "ResNet": ["RN50", "RN101", "RN50x4", "RN50x16", "RN50x64"],
