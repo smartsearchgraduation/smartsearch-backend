@@ -55,7 +55,7 @@ def get_categories():
 def get_category(category_id):
     """Get a single category with its parent and children info."""
     try:
-        category = Category.query.get(category_id)
+        category = db.session.get(Category, category_id)
         if not category:
             return jsonify({"error": "Category not found"}), 404
         
@@ -81,7 +81,7 @@ def create_category():
         # Validate parent exists if provided
         parent_id = data.get('parent_category_id')
         if parent_id:
-            parent = Category.query.get(parent_id)
+            parent = db.session.get(Category, parent_id)
             if not parent:
                 return jsonify({"error": "Parent category not found"}), 400
         
@@ -103,7 +103,7 @@ def create_category():
 def update_category(category_id):
     """Update a category's name or parent."""
     try:
-        category = Category.query.get(category_id)
+        category = db.session.get(Category, category_id)
         if not category:
             return jsonify({"error": "Category not found"}), 404
         
@@ -119,7 +119,7 @@ def update_category(category_id):
                 return jsonify({"error": "Category cannot be its own parent"}), 400
             # Validate parent exists if provided
             if parent_id:
-                parent = Category.query.get(parent_id)
+                parent = db.session.get(Category, parent_id)
                 if not parent:
                     return jsonify({"error": "Parent category not found"}), 400
             category.parent_category_id = parent_id
@@ -137,7 +137,7 @@ def update_category(category_id):
 def delete_category(category_id):
     """Remove a category from the system."""
     try:
-        category = Category.query.get(category_id)
+        category = db.session.get(Category, category_id)
         if not category:
             return jsonify({"error": "Category not found"}), 404
         

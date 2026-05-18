@@ -25,7 +25,7 @@ def get_brands():
 def get_brand(brand_id):
     """Fetch a ssingle brand's details."""
     try:
-        brand = Brand.query.get(brand_id)
+        brand = db.session.get(Brand, brand_id)
         if not brand:
             return jsonify({"error": "Brand not found"}), 404
         
@@ -63,7 +63,7 @@ def create_brand():
 def update_brand(brand_id):
     """Rename a brand."""
     try:
-        brand = Brand.query.get(brand_id)
+        brand = db.session.get(Brand, brand_id)
         if not brand:
             return jsonify({"error": "Brand not found"}), 404
         
@@ -85,7 +85,7 @@ def update_brand(brand_id):
 def delete_brand(brand_id):
     """Remove a brand from the system."""
     try:
-        brand = Brand.query.get(brand_id)
+        brand = db.session.get(Brand, brand_id)
         if not brand:
             return jsonify({"error": "Brand not found"}), 404
         

@@ -541,7 +541,7 @@ class SearchService:
             # Step 1: Retrieve Original Query
             logger.info(f"")
             logger.info(f"[Search] ━━━ STEP 1: RETRIEVE ORIGINAL QUERY ━━━")
-            original_search = SearchQuery.query.get(original_search_id)
+            original_search = db.session.get(SearchQuery, original_search_id)
             if not original_search:
                 raise ValueError(
                     f"Original search with id {original_search_id} not found"
@@ -842,7 +842,7 @@ class SearchService:
         """
         try:
             # First make sure this search actually exists
-            search_query = SearchQuery.query.get(search_id)
+            search_query = db.session.get(SearchQuery, search_id)
             if not search_query:
                 return None
 
@@ -1034,7 +1034,7 @@ class SearchService:
             bool: True if updated successfully, False otherwise.
         """
         try:
-            search_time = SearchTime.query.get(search_id)
+            search_time = db.session.get(SearchTime, search_id)
             if not search_time:
                 # Iterate to try and find if it was created but not committed yet? No, it should be there.
                 # Maybe create it if missing? For now just log warning.
@@ -1080,7 +1080,7 @@ class SearchService:
             # Step 1: Retrieve Original Query
             logger.info(f"")
             logger.info(f"[Search] ━━━ STEP 1: RETRIEVE SEARCH TEXT ━━━")
-            search_query = SearchQuery.query.get(search_id)
+            search_query = db.session.get(SearchQuery, search_id)
             if not search_query:
                 raise ValueError(f"Search with id {search_id} not found")
 

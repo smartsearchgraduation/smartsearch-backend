@@ -85,4 +85,4 @@ class TestCategories:
         r = c.post('/api/categories', json={'name':'C','parent_category_id':pid}); cid = r.get_json()['category_id']
         c.delete(f'/api/categories/{pid}')
         db.session.expire_all()
-        assert Category.query.get(cid) is not None
+        assert db.session.get(Category, cid) is not None

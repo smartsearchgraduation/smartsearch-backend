@@ -176,7 +176,7 @@ def save_selected_models(textual: str, visual: str, fusion_endpoint: str = None,
     """
     import json
     import os
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     config_path = os.path.join(os.path.dirname(__file__), 'selected_models.json')
     
@@ -193,7 +193,7 @@ def save_selected_models(textual: str, visual: str, fusion_endpoint: str = None,
             existing.get('fused_model', DEFAULT_FUSED_MODEL),
         ),
         "fusion_endpoint": fusion_endpoint or existing.get('fusion_endpoint', DEFAULT_FUSION_ENDPOINT),
-        "last_updated": datetime.utcnow().isoformat() + "Z"
+        "last_updated": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     }
 
     with open(config_path, 'w') as f:

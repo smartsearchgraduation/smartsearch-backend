@@ -212,7 +212,7 @@ def get_products():
 def get_product(product_id):
     """Fetch a single product with all its details and images (base64 encoded)."""
     try:
-        product = Product.query.get(product_id)
+        product = db.session.get(Product, product_id)
         if not product:
             return jsonify({"error": "Product not found"}), 404
         
@@ -407,7 +407,7 @@ def update_product(product_id):
         print(f"[DEBUG] Form data: {dict(request.form)}", file=sys.stderr)
         print(f"[DEBUG] Files: {list(request.files.keys())}", file=sys.stderr)
         
-        product = Product.query.get(product_id)
+        product = db.session.get(Product, product_id)
         if not product:
             print(f"[DEBUG] Product {product_id} not found", file=sys.stderr)
             return jsonify({"error": "Product not found"}), 404
@@ -682,7 +682,7 @@ def update_product(product_id):
 def delete_product(product_id):
     """Remove a product and all its associated data (including FAISS index)."""
     try:
-        product = Product.query.get(product_id)
+        product = db.session.get(Product, product_id)
         if not product:
             return jsonify({"error": "Product not found"}), 404
         
@@ -713,7 +713,7 @@ def upload_product_image(product_id):
     to disk and a database record created to track it.
     """
     try:
-        product = Product.query.get(product_id)
+        product = db.session.get(Product, product_id)
         if not product:
             return jsonify({"error": "Product not found"}), 404
         
@@ -810,7 +810,7 @@ def get_product_images(product_id):
     Returns all images as base64 data URI strings.
     """
     try:
-        product = Product.query.get(product_id)
+        product = db.session.get(Product, product_id)
         if not product:
             return jsonify({"error": "Product not found"}), 404
         
@@ -844,7 +844,7 @@ def get_product_first_image(product_id):
     """
     try:
         # Check if product exists
-        product = Product.query.get(product_id)
+        product = db.session.get(Product, product_id)
         if not product:
             return jsonify({"error": "Product not found"}), 404
         

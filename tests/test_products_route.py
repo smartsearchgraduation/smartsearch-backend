@@ -164,7 +164,7 @@ class TestProducts:
         p = _p(); db.session.commit()
         assert c.put(f'/api/products/{p.product_id}', data={'brand':'NewB','is_active':'false'}, content_type='multipart/form-data').status_code == 200
         db.session.expire_all()
-        assert Product.query.get(p.product_id).is_active is False
+        assert db.session.get(Product, p.product_id).is_active is False
 
     def test_upload_image_validation(self, ctx, c):
         p = _p(); db.session.commit()
@@ -219,6 +219,11 @@ class TestProducts:
     def test_update_product_invalid_price(self, ctx, c):
         p = _p(); db.session.commit()
         assert c.put(f'/api/products/{p.product_id}', data={'price':'abc'}, content_type='multipart/form-data').status_code == 400
+
+    def test_get_product_error(self, ctx, c):
+        with patch('routes.products.db.session.get') as mg:
+            mg.side_effect = Exception('err')
+            assert c.get('/api/products/1').status_code == 500
 
     def test_upload_image_no_file(self, ctx, c):
         p = _p(); db.session.commit()

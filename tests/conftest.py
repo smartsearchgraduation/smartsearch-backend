@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import pytest
 from flask import Flask
@@ -9,6 +10,81 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from config.app_config import TestingConfig
 from models import db as _db
+
+
+_TEST_CASE_PATTERN = re.compile(
+    r"^\|\s*(BU-[A-Z0-9]+-\d+)\s*\|.*?Run `([^`]+)` with pytest",
+    re.MULTILINE,
+)
+
+
+def _load_backend_test_case_ids():
+    backend_doc_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), '..', 'backend.md')
+    )
+
+    try:
+        with open(backend_doc_path, encoding='utf-8') as backend_doc:
+            content = backend_doc.read()
+    except OSError:
+        return {}
+
+    return {
+        nodeid.replace('\\', '/'): test_id
+        for test_id, nodeid in _TEST_CASE_PATTERN.findall(content)
+    }
+
+
+def _get_selected_test_ids(config):
+    selected_test_ids = set()
+    for test_id_arg in config.getoption('test_ids') or []:
+        selected_test_ids.update(
+            test_id.strip() for test_id in test_id_arg.split(',') if test_id.strip()
+        )
+    return selected_test_ids
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        '--test-id',
+        action='append',
+        dest='test_ids',
+        metavar='ID',
+        help='Run only tests linked to the given backend.md test-case ID',
+    )
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        'markers',
+        'test_id(id): backend.md test-case ID linked to this pytest case',
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    test_case_ids = _load_backend_test_case_ids()
+    selected_test_ids = _get_selected_test_ids(config)
+    selected_items = []
+    deselected_items = []
+
+    for item in items:
+        nodeid = item.nodeid.replace('\\', '/').split('[', 1)[0]
+        test_id = test_case_ids.get(nodeid)
+        if test_id:
+            item.add_marker(pytest.mark.test_id(test_id))
+            item.user_properties.append(('test_id', test_id))
+
+        if not selected_test_ids:
+            continue
+
+        if test_id in selected_test_ids:
+            selected_items.append(item)
+        else:
+            deselected_items.append(item)
+
+    if selected_test_ids:
+        config.hook.pytest_deselected(items=deselected_items)
+        items[:] = selected_items
 
 
 # Fix BigInteger autoincrement for SQLite - must be set up before any create_all()

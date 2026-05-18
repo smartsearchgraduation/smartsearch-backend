@@ -3,6 +3,7 @@ Analytics endpoint for receiving client-side metrics.
 """
 from flask import Blueprint, request, jsonify
 from services.search_service import SearchService
+from models import db
 from models.search_time import SearchTime
 import logging
 
@@ -66,7 +67,7 @@ def get_log_by_id(search_id):
     Get search time log by search_id.
     """
     try:
-        log = SearchTime.query.get(search_id)
+        log = db.session.get(SearchTime, search_id)
         if not log:
             return jsonify({'error': 'Log not found'}), 404
             
