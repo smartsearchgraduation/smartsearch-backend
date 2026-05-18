@@ -1,0 +1,7 @@
+{
+  "delta_ms": 50.662599998759106,
+  "iterations_per_batch": 20,
+  "median_off_ms": 2.3286000068765134,
+  "median_on_ms": 52.99120000563562,
+  "tolerance": "expected ~40-70 ms (50 ms inject + <20 ms overhead)"
+}

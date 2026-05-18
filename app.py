@@ -14,7 +14,7 @@ from models import db
 
 # Configure logging to show all service logs in console
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout)
@@ -24,7 +24,7 @@ logging.basicConfig(
 # Make sure our service loggers are enabled
 logging.getLogger('services.search_service').setLevel(logging.INFO)
 logging.getLogger('services.faiss_retrieval_service').setLevel(logging.INFO)
-logging.getLogger('services.text_corrector_service').setLevel(logging.INFO)
+logging.getLogger('services.text_corrector_service').setLevel(logging.DEBUG)
 
 
 def create_app(config_class=None):

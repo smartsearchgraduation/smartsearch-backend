@@ -1,0 +1,4 @@
+{
+  "tests/integration/test_backend_retrieval.py::TestBackendRetrievalIntegration::test_BR_INT_026_search_flow_empty_no_db_fallback": true,
+  "tests/integration/test_backend_retrieval.py::TestBackendRetrievalIntegration": true
+}

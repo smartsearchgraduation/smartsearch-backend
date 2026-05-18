@@ -1,0 +1,8 @@
+{
+  "delta_ms": 0.17900002421811223,
+  "iterations_per_batch": 30,
+  "median_no_persist_ms": 2.051399991614744,
+  "median_persist_ms": 2.2304000158328563,
+  "rowcount_after_no_persist": 0,
+  "rowcount_after_persist": 30
+}
